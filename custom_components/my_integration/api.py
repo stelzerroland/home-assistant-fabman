@@ -1,6 +1,7 @@
 """Fabman API client."""
 import logging
 from urllib.parse import urljoin
+import json
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ class FabmanAPI:
     async def get_resources(self):
         """Rufe alle Ressourcen (mit Pagination) ab."""
         resources = []
-        url = f"{self._base_url}/resources?limit=50"
+        url = f"{self._base_url}/resources?limit=50&embed=bridge"
 
         while url:
             _LOGGER.debug("Abfrage Fabman API: %s", url)
@@ -47,3 +48,5 @@ class FabmanAPI:
                 url = next_url
 
         return resources
+
+
