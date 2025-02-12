@@ -5,6 +5,11 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_URL
 
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+
+
+
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "fabman"
@@ -20,7 +25,7 @@ async def validate_input(hass, data):
     # Hier kann ein Testaufruf an die Fabman API eingebaut werden.
     # Beispielsweise:
     from .api import FabmanAPI
-    session = hass.helpers.aiohttp_client.async_get_clientsession()
+    session = async_get_clientsession(hass)
     api = FabmanAPI(session, data[CONF_URL], data[CONF_API_KEY])
     try:
         # Test: Wir rufen einmal die Ressourcen ab (ohne komplette Paginierung – reicht der erste Request?)
