@@ -28,7 +28,8 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
         self._resource_id = resource_id
         self._attr_unique_id = f"fabman_resource_{resource_id}_status"
         # Der Name wird dynamisch generiert, kann aber auch hier initial gesetzt werden.
-        self._attr_name = f"Fabman {resource_id} Status"
+        #self._attr_name = f"Fabman {resource_id} Status"
+        self._attr_name = self._generate_friendly_name()
 
     @property
     def resource(self):

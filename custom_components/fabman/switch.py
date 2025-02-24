@@ -27,7 +27,7 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
         """Initialisiert den Schalter anhand des Coordinators und der Resource-ID."""
         super().__init__(coordinator)
         self._resource_id = resource_id
-        self._attr_unique_id = f"fabman_resource_{resource_id}_switch"
+        self._attr_unique_id = f"fabman_resource_{resource_id}"
         self._attr_name = self._generate_friendly_name()
 
     @property

@@ -4,11 +4,11 @@ from .const import (
     DOMAIN,
     CONF_API_TOKEN,
     CONF_API_URL,
-    CONF_WEBSOCKET_URL,
+    #CONF_WEBSOCKET_URL,
     CONF_ENABLE_PERIODIC_SYNC,
     CONF_POLL_INTERVAL,            # neu
     DEFAULT_API_URL,
-    DEFAULT_WEBSOCKET_URL,
+    #DEFAULT_WEBSOCKET_URL,
     DEFAULT_ENABLE_PERIODIC_SYNC,
     DEFAULT_POLL_INTERVAL,         # neu
 )
@@ -26,7 +26,7 @@ class FabmanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data_schema = vol.Schema({
             vol.Required(CONF_API_TOKEN): str,
             vol.Optional(CONF_API_URL, default=DEFAULT_API_URL): str,
-            vol.Optional(CONF_WEBSOCKET_URL, default=DEFAULT_WEBSOCKET_URL): str,
+            #vol.Optional(CONF_WEBSOCKET_URL, default=DEFAULT_WEBSOCKET_URL): str,
             vol.Optional(CONF_ENABLE_PERIODIC_SYNC, default=DEFAULT_ENABLE_PERIODIC_SYNC): bool,
             # Wenn Periodic Sync aktiviert ist, kann das Polling-Intervall konfiguriert werden.
             vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL):
