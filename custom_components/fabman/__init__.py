@@ -6,6 +6,7 @@ from homeassistant.components.webhook import async_register, async_unregister
 from homeassistant.helpers.typing import ConfigType
 from .const import DOMAIN
 from .coordinator import FabmanDataUpdateCoordinator  # Import the class from coordinator.py
+from aiohttp.web import Response
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,9 +40,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle incoming Webhook from Fabman."""
         try:
             data = await request.json()
+            log_messages = []
+
             log_message = f"📡 Received Fabman Webhook: {data}"
             _LOGGER.info(log_message)
-            print(log_message)  # Ausgabe für Fabman-Webhook-Log
+            print(log_message)
+            log_messages.append(log_message)
 
             # Extract resource ID and status from the Webhook
             resource = data.get("details", {}).get("resource", {})
@@ -52,11 +56,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 log_message = "⚠️ Webhook received without resource_id."
                 _LOGGER.warning(log_message)
                 print(log_message)
-                return
-            
+                log_messages.append(log_message)
+                return Response(text="\n".join(log_messages), status=400)
+
             log_message = f"Webhook processes resource_id: {resource_id}"
             _LOGGER.debug(log_message)
             print(log_message)
+            log_messages.append(log_message)
 
             # Stelle sicher, dass der Koordinator geladen ist
             coordinator = hass.data[DOMAIN].get(next(iter(hass.data[DOMAIN])))
@@ -64,14 +70,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 log_message = "❌ Fabman Coordinator not found!"
                 _LOGGER.error(log_message)
                 print(log_message)
-                return
+                log_messages.append(log_message)
+                return Response(text="\n".join(log_messages), status=500)
 
             # Stelle sicher, dass die Ressource existiert
             if resource_id not in coordinator.data:
                 log_message = f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!"
                 _LOGGER.warning(log_message)
                 print(log_message)
-                return
+                log_messages.append(log_message)
+                return Response(text="\n".join(log_messages), status=404)
 
             # Aktualisiere den Status direkt
             updated_resource = coordinator.data[resource_id].copy()
@@ -87,19 +95,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             log_message = f"✅ Status of Resource {resource_id} updated successfully."
             _LOGGER.debug(log_message)
             print(log_message)
+            log_messages.append(log_message)
+
+            return Response(text="\n".join(log_messages), status=200)
 
         except Exception as e:
             log_message = f"❌ Error processing Fabman Webhook: {e}"
             _LOGGER.error(log_message)
             print(log_message)
+            log_messages.append(log_message)
+            return Response(text="\n".join(log_messages), status=500)
 
     async_register(hass, DOMAIN, "Fabman Webhook", WEBHOOK_ID, handle_webhook)
     log_message = f"✅ Fabman Webhook registered at {WEBHOOK_URL}"
     _LOGGER.info(log_message)
     print(log_message)
-
-    return True
-
+    
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload Fabman integration and remove webhook."""
     async_unregister(hass, WEBHOOK_ID)
