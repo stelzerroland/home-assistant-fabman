@@ -46,7 +46,7 @@ Instead of relying on periodic polling, Fabman Webhooks can be configured for re
 ### Prerequisites
 - Your Home Assistant server must be reachable externally via **HTTPS**.
 - This can be achieved using **port forwarding on your router** and services like **DuckDNS** if you don’t have a static IP address.
-- For setup guidance, refer to resources like [this DuckDNS tutorial](https://www.home-assistant.io/docs/ecosystem/duckdns/).
+- For setup guidance, refer to resources like [this DuckDNS tutorial](https://www.youtube.com/watch?v=AK5E2T5tWyM).
 
 ### Webhook Setup in Fabman
 1️⃣ Log in to your Fabman admin panel.  
