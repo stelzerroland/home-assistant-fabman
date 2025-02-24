@@ -39,7 +39,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle incoming Webhook from Fabman."""
         try:
             data = await request.json()
-            _LOGGER.info(f"📡 Received Fabman Webhook: {data}")
+            log_message = f"📡 Received Fabman Webhook: {data}"
+            _LOGGER.info(log_message)
+            print(log_message)  # Ausgabe für Fabman-Webhook-Log
 
             # Extract resource ID and status from the Webhook
             resource = data.get("details", {}).get("resource", {})
@@ -47,20 +49,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             last_used = resource.get("lastUsed")
 
             if not resource_id:
-                _LOGGER.warning("⚠️ Webhook received without resource_id.")
+                log_message = "⚠️ Webhook received without resource_id."
+                _LOGGER.warning(log_message)
+                print(log_message)
                 return
             
-            _LOGGER.debug("Webhook processes resource_id: %s", resource_id)
+            log_message = f"Webhook processes resource_id: {resource_id}"
+            _LOGGER.debug(log_message)
+            print(log_message)
 
             # Stelle sicher, dass der Koordinator geladen ist
             coordinator = hass.data[DOMAIN].get(next(iter(hass.data[DOMAIN])))
             if not coordinator:
-                _LOGGER.error("Fabman Coordinator not found!")
+                log_message = "❌ Fabman Coordinator not found!"
+                _LOGGER.error(log_message)
+                print(log_message)
                 return
 
             # Stelle sicher, dass die Ressource existiert
             if resource_id not in coordinator.data:
-                _LOGGER.warning("Webhook-Update: Resource %s not found in HA!", resource_id)
+                log_message = f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!"
+                _LOGGER.warning(log_message)
+                print(log_message)
                 return
 
             # Aktualisiere den Status direkt
@@ -74,24 +84,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.data[resource_id] = updated_resource
             coordinator.async_set_updated_data(coordinator.data)
 
-            _LOGGER.debug("Status of Resource %s updated sucessfully.", resource_id)
-
-            '''
-            # Determine the new status (on/off) based on lastUsed
-            new_status = "on" if last_used and "id" in last_used and "stopType" not in last_used else "off"
-
-            # ✅ Update Home Assistant entity state
-            entity_id = f"switch.fabman_resource_{resource_id}"
-            await hass.services.async_call("homeassistant", "update_entity", {"entity_id": entity_id})
-
-            _LOGGER.info(f"🔄 Updated {entity_id} to {new_status}")
-            '''
+            log_message = f"✅ Status of Resource {resource_id} updated successfully."
+            _LOGGER.debug(log_message)
+            print(log_message)
 
         except Exception as e:
-            _LOGGER.error(f"❌ Error processing Fabman Webhook: {e}")
+            log_message = f"❌ Error processing Fabman Webhook: {e}"
+            _LOGGER.error(log_message)
+            print(log_message)
 
     async_register(hass, DOMAIN, "Fabman Webhook", WEBHOOK_ID, handle_webhook)
-    _LOGGER.info(f"✅ Fabman Webhook registered at {WEBHOOK_URL}")
+    log_message = f"✅ Fabman Webhook registered at {WEBHOOK_URL}"
+    _LOGGER.info(log_message)
+    print(log_message)
 
     return True
 
