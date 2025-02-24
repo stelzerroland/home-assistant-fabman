@@ -92,10 +92,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.data[resource_id] = updated_resource
             coordinator.async_set_updated_data(coordinator.data)
 
-            log_message = f"✅ Status of Resource {resource_id} updated successfully."
+            # Logge die aktualisierten Werte für Debugging
+            log_message = (
+                f"✅ Status of Resource {resource_id} updated successfully. "
+                f"New value: {updated_resource}"
+            )
             _LOGGER.debug(log_message)
-            print(log_message)
+            print(log_message)  # Wird auf stdout ausgegeben
             log_messages.append(log_message)
+
+            # Triggert Home Assistant, damit die UI aktualisiert wird
+            hass.bus.async_fire("fabman_webhook_update", {"resource_id": resource_id})
 
             return Response(text="\n".join(log_messages), status=200)
 
@@ -110,7 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     log_message = f"✅ Fabman Webhook registered at {WEBHOOK_URL}"
     _LOGGER.info(log_message)
     print(log_message)
-    
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload Fabman integration and remove webhook."""
     async_unregister(hass, WEBHOOK_ID)
