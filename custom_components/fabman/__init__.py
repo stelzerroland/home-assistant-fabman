@@ -35,7 +35,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # ✅ Properly register the Webhook using async_register
+    # ✅ Webhook sicher registrieren (Vorher prüfen, ob er existiert)
+    if WEBHOOK_ID in hass.components.webhook.async_get_handlers():
+        _LOGGER.warning("🔄 Webhook bereits registriert. Entferne alten Handler.")
+        hass.components.webhook.async_unregister(WEBHOOK_ID)
+
     async def handle_webhook(hass: HomeAssistant, webhook_id: str, request):
         """Handle incoming Webhook from Fabman."""
         try:
@@ -50,7 +54,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Extract resource ID and status from the Webhook
             resource = data.get("details", {}).get("resource", {})
             resource_id = resource.get("id")
-            last_used = resource.get("lastUsed")
 
             if not resource_id:
                 log_message = "⚠️ Webhook received without resource_id."
@@ -65,7 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             log_messages.append(log_message)
 
             # Stelle sicher, dass der Koordinator geladen ist
-            coordinator = hass.data[DOMAIN].get(next(iter(hass.data[DOMAIN])))
+            coordinator = hass.data[DOMAIN].get(next(iter(hass.data[DOMAIN])), None)
             if not coordinator:
                 log_message = "❌ Fabman Coordinator not found!"
                 _LOGGER.error(log_message)
@@ -74,7 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return Response(text="\n".join(log_messages), status=500)
 
             # Stelle sicher, dass die Ressource existiert
-            if resource_id not in coordinator.data:
+            if not coordinator.data or resource_id not in coordinator.data:
                 log_message = f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!"
                 _LOGGER.warning(log_message)
                 print(log_message)
@@ -84,6 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Aktualisiere den Status direkt
             updated_resource = coordinator.data[resource_id].copy()
             last_used = resource.get("lastUsed")
+
             if last_used and "id" in last_used and "stopType" not in last_used:
                 updated_resource["lastUsed"] = {"id": "set_by_webhook", "stopType": None}
             else:
@@ -117,6 +121,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     log_message = f"✅ Fabman Webhook registered at {WEBHOOK_URL}"
     _LOGGER.info(log_message)
     print(log_message)
+
+    return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload Fabman integration and remove webhook."""
