@@ -42,7 +42,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             data = await request.json()
             _LOGGER.info(f"📡 Received Fabman Webhook: {data}")
 
-            # Extract resource ID and status from the Webhook
+            # Extrahiere die Ressourcen-ID
             resource = data.get("details", {}).get("resource", {})
             resource_id = resource.get("id")
 
@@ -63,21 +63,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning(f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!")
                 return Response(text=f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!", status=404)
 
-            # Aktualisiere den Status direkt
-            updated_resource = coordinator.data[resource_id].copy()
-            last_used = resource.get("lastUsed")
+            # Extrahiere den `stopType`, um den Status zu bestimmen
+            log_entry = data.get("details", {}).get("log", {})
+            stop_type = log_entry.get("stopType", None)
 
-            if last_used and "id" in last_used and "stopType" not in last_used:
-                updated_resource["lastUsed"] = {"id": "set_by_webhook", "stopType": None}
-            else:
-                updated_resource["lastUsed"] = {"id": None, "stopType": "set_by_webhook"}
+            # Bestimme den neuen Maschinenstatus
+            machine_status = "on" if stop_type is None else "off"
+
+            # Aktualisiere den Status der Maschine
+            updated_resource = coordinator.data[resource_id].copy()
+            updated_resource["status"] = machine_status
 
             coordinator.data[resource_id] = updated_resource
             coordinator.async_set_updated_data(coordinator.data)
 
-            _LOGGER.debug(f"✅ Status of Resource {resource_id} updated successfully.")
+            _LOGGER.info(f"✅ Status of Resource {resource_id} set to {machine_status}.")
 
-            return Response(text=f"✅ Status of Resource {resource_id} updated successfully.", status=200)
+            # Aktualisiere die Entität in HA
+            entity_id = f"switch.fabman_resource_{resource_id}"
+            await hass.services.async_call("homeassistant", "update_entity", {"entity_id": entity_id})
+
+            return Response(text=f"✅ Status of Resource {resource_id} set to {machine_status}.", status=200)
+
+        except Exception as e:
+            _LOGGER.error(f"❌ Error processing Fabman Webhook: {e}")
+            return Response(text=f"❌ Error processing Fabman Webhook: {e}", status=500)
+
 
         except Exception as e:
             _LOGGER.error(f"❌ Error processing Fabman Webhook: {e}")

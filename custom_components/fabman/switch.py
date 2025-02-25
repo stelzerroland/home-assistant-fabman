@@ -28,16 +28,17 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._resource_id = resource_id
         self._attr_unique_id = f"fabman_resource_{resource_id}"
-        self._attr_name = self._generate_friendly_name()
+        #self._attr_name = self._generate_friendly_name()
+        self._attr_name = f"fabman_resource_{resource_id}"
 
     @property
     def resource(self):
         """Gibt die aktuellen Daten der Ressource aus dem Coordinator zurück."""
         return self.coordinator.data.get(self._resource_id, {})
 
-    def _generate_friendly_name(self):
-        name = self.resource.get("name", "Unbekannt")
-        return f"{name} Switch ({self._resource_id})"
+    #def _generate_friendly_name(self):
+    #    name = self.resource.get("name", "Unbekannt")
+    #    return f"{name} Switch ({self._resource_id})"
 
     @property
     def is_on(self):

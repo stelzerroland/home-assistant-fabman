@@ -26,19 +26,19 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
         """Initialisiere den Sensor mit dem Coordinator und der Resource-ID."""
         super().__init__(coordinator)
         self._resource_id = resource_id
-        self._attr_unique_id = f"fabman_resource_{resource_id}_status"
-        # Der Name wird dynamisch generiert, kann aber auch hier initial gesetzt werden.
-        #self._attr_name = f"Fabman {resource_id} Status"
-        self._attr_name = self._generate_friendly_name()
+        #self._attr_unique_id = f"fabman_resource_{resource_id}_status"
+        self._attr_unique_id = f"fabman_resource_{resource_id}"
+        #self._attr_name = self._generate_friendly_name()
+        self._attr_name = f"fabman_resource_{resource_id}"
 
     @property
     def resource(self):
         """Gibt die aktuellsten Daten für diese Ressource aus dem Coordinator zurück."""
         return self.coordinator.data.get(self._resource_id, {})
 
-    def _generate_friendly_name(self):
-        name = self.resource.get("name", "Unbekannt")
-        return f"{name} Status ({self._resource_id})"
+    #def _generate_friendly_name(self):
+    #    name = self.resource.get("name", "Unbekannt")
+    #    return f"{name} Status ({self._resource_id})"
 
     @property
     def state(self):
