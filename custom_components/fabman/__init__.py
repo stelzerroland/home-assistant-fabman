@@ -4,14 +4,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.webhook import async_register, async_unregister
 from homeassistant.helpers.typing import ConfigType
+from aiohttp.web import Response  # Für HTTP-Antworten in handle_webhook
 from .const import DOMAIN
-from .coordinator import FabmanDataUpdateCoordinator  # Import the class from coordinator.py
-from aiohttp.web import Response
+from .coordinator import FabmanDataUpdateCoordinator  # Import der Klasse aus coordinator.py
 
 _LOGGER = logging.getLogger(__name__)
 
-WEBHOOK_ID = "fabman_webhook"  # Webhook name for Fabman
-WEBHOOK_URL = f"/api/webhook/{WEBHOOK_ID}"  # Webhook endpoint in HA
+WEBHOOK_ID = "fabman_webhook"  # Webhook-Name für Fabman
+WEBHOOK_URL = f"/api/webhook/{WEBHOOK_ID}"  # Webhook-Endpoint in HA
 
 PLATFORMS = ["switch", "sensor"]
 
@@ -35,54 +35,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # ✅ Webhook sicher registrieren (Vorher prüfen, ob er existiert)
-    if WEBHOOK_ID in hass.components.webhook.async_get_handlers():
-        _LOGGER.warning("🔄 Webhook bereits registriert. Entferne alten Handler.")
-        hass.components.webhook.async_unregister(WEBHOOK_ID)
-
+    # ✅ Webhook-Handler-Funktion definieren (vor async_register)
     async def handle_webhook(hass: HomeAssistant, webhook_id: str, request):
         """Handle incoming Webhook from Fabman."""
         try:
             data = await request.json()
-            log_messages = []
-
-            log_message = f"📡 Received Fabman Webhook: {data}"
-            _LOGGER.info(log_message)
-            print(log_message)
-            log_messages.append(log_message)
+            _LOGGER.info(f"📡 Received Fabman Webhook: {data}")
 
             # Extract resource ID and status from the Webhook
             resource = data.get("details", {}).get("resource", {})
             resource_id = resource.get("id")
 
             if not resource_id:
-                log_message = "⚠️ Webhook received without resource_id."
-                _LOGGER.warning(log_message)
-                print(log_message)
-                log_messages.append(log_message)
-                return Response(text="\n".join(log_messages), status=400)
+                _LOGGER.warning("⚠️ Webhook received without resource_id.")
+                return Response(text="⚠️ Webhook received without resource_id.", status=400)
 
-            log_message = f"Webhook processes resource_id: {resource_id}"
-            _LOGGER.debug(log_message)
-            print(log_message)
-            log_messages.append(log_message)
+            _LOGGER.debug(f"Webhook processes resource_id: {resource_id}")
 
             # Stelle sicher, dass der Koordinator geladen ist
             coordinator = hass.data[DOMAIN].get(next(iter(hass.data[DOMAIN])), None)
             if not coordinator:
-                log_message = "❌ Fabman Coordinator not found!"
-                _LOGGER.error(log_message)
-                print(log_message)
-                log_messages.append(log_message)
-                return Response(text="\n".join(log_messages), status=500)
+                _LOGGER.error("❌ Fabman Coordinator not found!")
+                return Response(text="❌ Fabman Coordinator not found!", status=500)
 
             # Stelle sicher, dass die Ressource existiert
             if not coordinator.data or resource_id not in coordinator.data:
-                log_message = f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!"
-                _LOGGER.warning(log_message)
-                print(log_message)
-                log_messages.append(log_message)
-                return Response(text="\n".join(log_messages), status=404)
+                _LOGGER.warning(f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!")
+                return Response(text=f"⚠️ Webhook-Update: Resource {resource_id} not found in HA!", status=404)
 
             # Aktualisiere den Status direkt
             updated_resource = coordinator.data[resource_id].copy()
@@ -96,31 +75,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.data[resource_id] = updated_resource
             coordinator.async_set_updated_data(coordinator.data)
 
-            # Logge die aktualisierten Werte für Debugging
-            log_message = (
-                f"✅ Status of Resource {resource_id} updated successfully. "
-                f"New value: {updated_resource}"
-            )
-            _LOGGER.debug(log_message)
-            print(log_message)  # Wird auf stdout ausgegeben
-            log_messages.append(log_message)
+            _LOGGER.debug(f"✅ Status of Resource {resource_id} updated successfully.")
 
-            # Triggert Home Assistant, damit die UI aktualisiert wird
-            hass.bus.async_fire("fabman_webhook_update", {"resource_id": resource_id})
-
-            return Response(text="\n".join(log_messages), status=200)
+            return Response(text=f"✅ Status of Resource {resource_id} updated successfully.", status=200)
 
         except Exception as e:
-            log_message = f"❌ Error processing Fabman Webhook: {e}"
-            _LOGGER.error(log_message)
-            print(log_message)
-            log_messages.append(log_message)
-            return Response(text="\n".join(log_messages), status=500)
+            _LOGGER.error(f"❌ Error processing Fabman Webhook: {e}")
+            return Response(text=f"❌ Error processing Fabman Webhook: {e}", status=500)
 
+    # ✅ Webhook sicher registrieren (Vorher prüfen, ob er existiert)
+    try:
+        async_unregister(hass, WEBHOOK_ID)
+        _LOGGER.info(f"🔄 Webhook {WEBHOOK_ID} entfernt (falls er existierte).")
+    except ValueError:
+        _LOGGER.info(f"✅ Kein vorhandener Webhook für {WEBHOOK_ID}, Registrierung läuft.")
+
+    # Jetzt sicher registrieren
     async_register(hass, DOMAIN, "Fabman Webhook", WEBHOOK_ID, handle_webhook)
-    log_message = f"✅ Fabman Webhook registered at {WEBHOOK_URL}"
-    _LOGGER.info(log_message)
-    print(log_message)
+    _LOGGER.info(f"✅ Fabman Webhook registered at {WEBHOOK_URL}")
 
     return True
 
