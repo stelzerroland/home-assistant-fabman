@@ -33,7 +33,7 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
 
         # Explizite Entitäts-ID setzen
         self.entity_id = async_generate_entity_id(
-            "sensor.{}", f"fabman_resource_{resource_id}", hass=coordinator.hass
+            "switch.{}", f"fabman_resource_{resource_id}", hass=coordinator.hass
         )
 
     @property
