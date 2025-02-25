@@ -7,6 +7,8 @@ from homeassistant.helpers.typing import ConfigType
 from aiohttp.web import Response  # Für HTTP-Antworten in handle_webhook
 from .const import DOMAIN
 from .coordinator import FabmanDataUpdateCoordinator  # Import der Klasse aus coordinator.py
+import homeassistant.util.dt as dt_util
+from datetime import timedelta
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -14,6 +16,9 @@ WEBHOOK_ID = "fabman_webhook"  # Webhook-Name für Fabman
 WEBHOOK_URL = f"/api/webhook/{WEBHOOK_ID}"  # Webhook-Endpoint in HA
 
 PLATFORMS = ["switch", "sensor"]
+
+# Dictionary zum Speichern der Timer pro Resource
+FABMAN_TIMERS = "fabman_timers"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the Fabman integration via ConfigEntry."""
@@ -52,11 +57,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("🔄 Webhook ausgelöst – Starte vollständige Aktualisierung aller Fabman-Geräte...")
             await coordinator.async_refresh()
 
-
-
-
             # Falls das Gerät eine Tür ist, plane ein erneutes Update nach maxOfflineUsage Sekunden
             resource = data.get("details", {}).get("resource", {})
+            resource_id = resource.get("id")
             control_type = resource.get("controlType", "")
             max_offline_usage = resource.get("maxOfflineUsage", 0)
 
@@ -68,18 +71,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     delay = (close_time - dt_util.utcnow()).total_seconds()
 
                     if delay > 0:
-                        _LOGGER.info(f"🕒 Tür wird in {delay:.1f} Sekunden erneut überprüft...")
-                        hass.loop.call_later(delay, lambda: hass.async_create_task(coordinator.async_refresh()))
+                        _LOGGER.info(f"🕒 Tür {resource_id} wird in {delay:.1f} Sekunden erneut überprüft (schließt um {dt_util.as_local(close_time)}).")
 
+                        # Stelle sicher, dass hass.data["fabman_timers"] existiert
+                        if FABMAN_TIMERS not in hass.data:
+                            hass.data[FABMAN_TIMERS] = {}
 
+                        # Falls bereits ein Timer für diese Ressource existiert → abbrechen
+                        if resource_id in hass.data[FABMAN_TIMERS]:
+                            _LOGGER.info(f"🛑 Abbreche vorherigen Timer für Tür {resource_id}.")
+                            hass.data[FABMAN_TIMERS][resource_id].cancel()
 
-
+                        # Neuen Timer setzen
+                        hass.data[FABMAN_TIMERS][resource_id] = hass.loop.call_later(
+                            delay, lambda: hass.async_create_task(coordinator.async_refresh())
+                        )
 
             return Response(text="✅ Fabman Geräte-Update erfolgreich gestartet.", status=200)
 
         except Exception as e:
             _LOGGER.error(f"❌ Fehler beim Verarbeiten des Fabman Webhooks: {e}")
             return Response(text=f"❌ Fehler beim Verarbeiten des Fabman Webhooks: {e}", status=500)
+
 
     # ✅ Webhook sicher registrieren (Vorher prüfen, ob er existiert)
     try:

@@ -7,6 +7,7 @@ from .const import DOMAIN, CONF_API_URL
 from .helpers import get_device_info
 from datetime import datetime, timedelta
 import homeassistant.util.dt as dt_util
+import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,14 +43,6 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     #    name = self.resource.get("name", "Unbekannt")
     #    return f"{name} Switch ({self._resource_id})"
 
-    #@property
-    #def is_on(self):
-    #    """Ermittelt den Status anhand der 'lastUsed'-Section."""
-    #    last_used = self.resource.get("lastUsed")
-    #    if last_used and last_used.get("id") and not last_used.get("stopType"):
-    #        return True
-    #    return False
-
     @property
     def is_on(self):
         """Ermittelt den Status anhand der 'lastUsed'-Daten und berücksichtigt Türen."""
@@ -58,11 +51,17 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
         control_type = self.resource.get("controlType", "")
         max_offline_usage = self.resource.get("maxOfflineUsage", 0)
 
-        # Standard: stopType entscheidet, ob die Maschine an oder aus ist
+        # Falls der Status durch einen Schaltvorgang temporär gesetzt wurde
+        if last_used.get("id") == "temporary_on":
+            return True
+        if last_used.get("id") == "temporary_off":
+            return False
+
+        # Standardfall: Maschinenstatus anhand von stopType
         if control_type != "door":
             return stop_type is None  # ON, wenn stopType nicht gesetzt ist
 
-        # Spezialfall für Türen: Überprüfe, ob sie noch offen sein sollte
+        # Spezialfall für Türen: Prüfe, ob sie noch offen ist
         last_used_time = last_used.get("at")
         if last_used_time:
             last_used_time = dt_util.parse_datetime(last_used_time)
@@ -71,6 +70,7 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
                 return True  # Tür ist noch offen
 
         return False  # Tür ist geschlossen
+
 
     @property
     def device_info(self):
@@ -85,35 +85,6 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs):
         """Schaltet die Maschine aus, indem die Fabman API aufgerufen wird."""
         await self._set_machine_status("off")
-
-    async def _set_machine_status_OLD(self, status):
-        coordinator = self.coordinator
-        api_url = coordinator.api_url
-        api_token = coordinator.api_token
-
-        if status == "on":
-            endpoint = f"resources/{self._resource_id}/bridge/switch-on"
-        elif status == "off":
-            endpoint = f"resources/{self._resource_id}/bridge/switch-off"
-        else:
-            _LOGGER.error("Ungültiger Status: %s", status)
-            return
-
-        url = f"{api_url}/{endpoint}"
-        headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
-        }
-        session = async_get_clientsession(coordinator.hass)
-        try:
-            # Sende ein leeres JSON-Payload, falls die API dies erwartet.
-            async with session.post(url, json={}, headers=headers) as response:
-                if response.status != 201:
-                    _LOGGER.error("Schalten der Bridge %s auf %s fehlgeschlagen: HTTP %s", self._resource_id, status, response.status)
-                else:
-                    _LOGGER.debug("Bridge %s erfolgreich auf %s geschaltet", self._resource_id, status)
-        except Exception as e:
-            _LOGGER.error("Fehler beim Schalten der Bridge %s: %s", self._resource_id, e)
 
     async def _set_machine_status(self, status):
         coordinator = self.coordinator
@@ -143,14 +114,63 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
                     _LOGGER.debug("Bridge %s erfolgreich auf %s geschaltet", self._resource_id, status)
                     # Lokale Änderung: Erstelle eine Kopie der Ressource und setze den erwarteten Zustand.
                     resource = coordinator.data.get(self._resource_id, {}).copy()
+                    #if status == "on":
+                    #    resource["lastUsed"] = {"id": "set_by_api", "stopType": None}
+                    #elif status == "off":
+                    #    resource["lastUsed"] = {"id": None, "stopType": "set_by_api"}
                     if status == "on":
-                        resource["lastUsed"] = {"id": "set_by_api", "stopType": None}
+                        _LOGGER.info(f"🔄 Temporäres Setzen von {self._resource_id} auf 'on', bis API-Antwort kommt.")
+                        resource["lastUsed"] = {"id": "temporary_on", "stopType": None}
                     elif status == "off":
-                        resource["lastUsed"] = {"id": None, "stopType": "set_by_api"}
-                    # Aktualisiere die Daten im Koordinator und informiere alle Entitäten:
+                        _LOGGER.info(f"🔄 Temporäres Setzen von {self._resource_id} auf 'off', bis API-Antwort kommt.")
+                        resource["lastUsed"] = {"id": None, "stopType": "temporary_off"}
+
+                    # Aktualisiere die Daten im Koordinator
                     coordinator.data[self._resource_id] = resource
                     coordinator.async_set_updated_data(coordinator.data)
-                    # Schreibe den neuen Zustand der Entität sofort:
+
+                    # Home Assistant Zustand sofort aktualisieren
                     self.async_write_ha_state()
+
+
+                    # Auch den Sensor-Status aktualisieren, damit er direkt mit dem Schalter synchron ist
+                    entity_registry = self.coordinator.hass.data.get("entity_registry")
+                    sensor_entity_id = f"sensor.fabman_resource_{self._resource_id}"
+
+                    # Falls der Sensor existiert, schreibe den neuen Zustand
+                    if sensor_entity_id in self.coordinator.hass.states.async_entity_ids():
+                        _LOGGER.info(f"🔄 Aktualisiere Sensor {sensor_entity_id} auf '{status}'")
+                        self.coordinator.hass.states.async_set(sensor_entity_id, status)
+                    else:
+                        _LOGGER.warning(f"⚠️ Sensor {sensor_entity_id} nicht gefunden – kann nicht aktualisiert werden.")
+
+
+                    # Starte einen neuen API-Refresh, damit auch die Sensoren neue Daten erhalten
+                    _LOGGER.info(f"🕒 Warte ein paar Sekunden, bevor API-Refresh für Fabman Resource {self._resource_id} gestartet wird...")
+
+
+                    # Prüfe, ob es sich um eine Tür handelt
+                    control_type = self.resource.get("controlType", "")
+                    max_offline_usage = self.resource.get("maxOfflineUsage", 0)
+
+                    # Falls Tür: Warte "maxOfflineUsage" Sekunden + 2 Sekunden Puffer
+                    if control_type == "door" and max_offline_usage > 0:
+                        delay = max_offline_usage + 2
+                        _LOGGER.info(f"🕒 Tür {self._resource_id} bleibt für {max_offline_usage} Sekunden 'on'. "
+                                    f"Starte API-Refresh in {delay} Sekunden...")
+                    else:
+                        delay = 2  # Standard-Verzögerung für andere Geräte
+
+                    await asyncio.sleep(delay)  # 🔥 Wartezeit setzen
+                    await coordinator.async_refresh()
+                    _LOGGER.info(f"🔄 API-Refresh für Fabman Resource {self._resource_id} abgeschlossen.")
+
+
+                    await coordinator.async_refresh()
+                    _LOGGER.info(f"🔄 API-Refresh für Fabman Resource {self._resource_id} abgeschlossen.")
+
+
+
+
         except Exception as e:
             _LOGGER.error("Fehler beim Schalten der Bridge %s: %s", self._resource_id, e)

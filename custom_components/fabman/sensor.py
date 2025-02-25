@@ -1,4 +1,6 @@
 import logging
+import homeassistant.util.dt as dt_util  # 🔥 Import für Zeithandling
+from datetime import timedelta  # 🔥 Import für Zeitdifferenzen
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -14,8 +16,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for resource_id, resource in coordinator.data.items():
         bridge_data = resource.get("_embedded", {}).get("bridge")
         if not bridge_data:
-            # Ignoriere Ressourcen ohne gültige Bridge-Daten
-            continue
+            continue  # Ignoriere Ressourcen ohne gültige Bridge-Daten
         entities.append(FabmanSensor(coordinator, resource_id))
     async_add_entities(entities)
 
@@ -26,35 +27,46 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
         """Initialisiere den Sensor mit dem Coordinator und der Resource-ID."""
         super().__init__(coordinator)
         self._resource_id = resource_id
-        #self._attr_unique_id = f"fabman_resource_{resource_id}_status"
         self._attr_unique_id = f"fabman_resource_{resource_id}"
-        #self._attr_name = self._generate_friendly_name()
         self._attr_name = f"fabman_resource_{resource_id}"
+        #self._attr_name = self._generate_friendly_name()  # Fix für Namensprobleme
+
+    #def _generate_friendly_name(self):
+    #    """Erstellt einen konsistenten Friendly Name für den Sensor."""
+    #    name = self.resource.get("name", f"Fabman Resource {self._resource_id}")
+    #    return f"{name} Status"
 
     @property
     def resource(self):
         """Gibt die aktuellsten Daten für diese Ressource aus dem Coordinator zurück."""
         return self.coordinator.data.get(self._resource_id, {})
 
-    #def _generate_friendly_name(self):
-    #    name = self.resource.get("name", "Unbekannt")
-    #    return f"{name} Status ({self._resource_id})"
-
     @property
     def state(self):
-        """Ermittelt den Zustand basierend auf den 'lastUsed'-Daten."""
-        last_used = self.resource.get("lastUsed")
-        if last_used and last_used.get("id") and not last_used.get("stopType"):
-            return "on"
-        return "off"
+        """Ermittelt den Zustand basierend auf 'lastUsed'-Daten und berücksichtigt Türen."""
+        last_used = self.resource.get("lastUsed", {})
+        stop_type = last_used.get("stopType", None)
+        control_type = self.resource.get("controlType", "")
+        max_offline_usage = self.resource.get("maxOfflineUsage", 0)
+
+        # Standardfall: Maschinenstatus anhand von stopType
+        if control_type != "door":
+            return "on" if stop_type is None else "off"
+
+        # Spezialfall für Türen: Prüfe, ob die Tür noch offen ist
+        last_used_time = last_used.get("at")
+        if last_used_time:
+            last_used_time = dt_util.parse_datetime(last_used_time)
+            close_time = last_used_time + timedelta(seconds=max_offline_usage)
+            if dt_util.utcnow() < close_time:
+                return "on"  # Tür ist noch offen
+
+        return "off"  # Tür ist geschlossen
 
     @property
     def is_on(self):
         """Gibt True zurück, wenn der Zustand 'on' ist."""
-        last_used = self.resource.get("lastUsed")
-        if last_used and last_used.get("id") and not last_used.get("stopType"):
-            return True
-        return False
+        return self.state == "on"
 
     @property
     def device_info(self):
