@@ -28,7 +28,8 @@ Status updates can be received either via **polling** (default) or optionally vi
      ```
      https://github.com/stelzerroland/home-assistant-fabman
      ```
-   - Choose **Integration** as the category  
+   - Choose **Integration** as the category
+
 3️⃣ **Install the integration & restart Home Assistant**  
 4️⃣ **Go to Settings → Devices & Services → Add Integration**  
 5️⃣ Search for `"Fabman"` and enter your **API URL** & **API Token**  
@@ -54,7 +55,8 @@ Instead of relying on periodic polling, Fabman Webhooks can be configured for re
 3️⃣ Click **"Add Webhook"**.  
 4️⃣ Configure the webhook as follows:
    - **URL:** `https://<your-server>.duckdns.org:8123/api/webhook/fabman_webhook`  
-   - **Event Type:** `Activity Log`  
+   - **Event Type:** `Activity Log`
+
 5️⃣ Save the webhook settings.  
 
 ## 🔮 Planned Features (Future Development)
