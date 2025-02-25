@@ -24,11 +24,11 @@ class FabmanAPI:
 
 
         while url:
-            _LOGGER.debug("Abfrage Fabman API: %s", url)
+            _LOGGER.debug("Fabman API Request: %s", url)
             async with self._session.get(url, headers=self._headers) as response:
                 if response.status != 200:
                     text = await response.text()
-                    _LOGGER.error("Fehler beim Abruf von %s: %s - %s", url, response.status, text)
+                    _LOGGER.error("Error calling %s: %s - %s", url, response.status, text)
                     raise Exception(f"Error fetching resources: {response.status}")
 
                 data = await response.json()

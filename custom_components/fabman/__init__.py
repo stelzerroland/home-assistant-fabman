@@ -52,6 +52,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("🔄 Webhook ausgelöst – Starte vollständige Aktualisierung aller Fabman-Geräte...")
             await coordinator.async_refresh()
 
+
+
+
+            # Falls das Gerät eine Tür ist, plane ein erneutes Update nach maxOfflineUsage Sekunden
+            resource = data.get("details", {}).get("resource", {})
+            control_type = resource.get("controlType", "")
+            max_offline_usage = resource.get("maxOfflineUsage", 0)
+
+            if control_type == "door" and max_offline_usage > 0:
+                last_used_at = resource.get("lastUsed", {}).get("at")
+                if last_used_at:
+                    last_used_at = dt_util.parse_datetime(last_used_at)
+                    close_time = last_used_at + timedelta(seconds=max_offline_usage)
+                    delay = (close_time - dt_util.utcnow()).total_seconds()
+
+                    if delay > 0:
+                        _LOGGER.info(f"🕒 Tür wird in {delay:.1f} Sekunden erneut überprüft...")
+                        hass.loop.call_later(delay, lambda: hass.async_create_task(coordinator.async_refresh()))
+
+
+
+
+
             return Response(text="✅ Fabman Geräte-Update erfolgreich gestartet.", status=200)
 
         except Exception as e:

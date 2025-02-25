@@ -5,6 +5,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import DOMAIN, CONF_API_URL
 from .helpers import get_device_info
+from datetime import datetime, timedelta
+import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,13 +42,35 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     #    name = self.resource.get("name", "Unbekannt")
     #    return f"{name} Switch ({self._resource_id})"
 
+    #@property
+    #def is_on(self):
+    #    """Ermittelt den Status anhand der 'lastUsed'-Section."""
+    #    last_used = self.resource.get("lastUsed")
+    #    if last_used and last_used.get("id") and not last_used.get("stopType"):
+    #        return True
+    #    return False
+
     @property
     def is_on(self):
-        """Ermittelt den Status anhand der 'lastUsed'-Section."""
-        last_used = self.resource.get("lastUsed")
-        if last_used and last_used.get("id") and not last_used.get("stopType"):
-            return True
-        return False
+        """Ermittelt den Status anhand der 'lastUsed'-Daten und berücksichtigt Türen."""
+        last_used = self.resource.get("lastUsed", {})
+        stop_type = last_used.get("stopType", None)
+        control_type = self.resource.get("controlType", "")
+        max_offline_usage = self.resource.get("maxOfflineUsage", 0)
+
+        # Standard: stopType entscheidet, ob die Maschine an oder aus ist
+        if control_type != "door":
+            return stop_type is None  # ON, wenn stopType nicht gesetzt ist
+
+        # Spezialfall für Türen: Überprüfe, ob sie noch offen sein sollte
+        last_used_time = last_used.get("at")
+        if last_used_time:
+            last_used_time = dt_util.parse_datetime(last_used_time)
+            close_time = last_used_time + timedelta(seconds=max_offline_usage)
+            if dt_util.utcnow() < close_time:
+                return True  # Tür ist noch offen
+
+        return False  # Tür ist geschlossen
 
     @property
     def device_info(self):
