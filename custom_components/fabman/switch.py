@@ -25,16 +25,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     """Repräsentiert einen Fabman-Bridge-Schalter für Ressourcen mit Bridge."""
+
     def __init__(self, coordinator, resource_id):
+        """Initialisiert den Schalter anhand des Coordinators und der Resource-ID."""
         super().__init__(coordinator)
         self._resource_id = resource_id
-        self._attr_unique_id = f"fabman_resource_{resource_id}_switch"
-        self._attr_name = f"{self.resource.get('name', 'Unbekannt')} Switch"
-
-        # Explizite Entitäts-ID setzen
-        self.entity_id = async_generate_entity_id(
-            "sensor.{}", f"fabman_resource_{resource_id}", hass=coordinator.hass
-        )
+        self._attr_unique_id = f"fabman_resource_{resource_id}"
+        #self._attr_name = self._generate_friendly_name()
+        self._attr_name = f"fabman_resource_{resource_id}"
 
     @property
     def resource(self):
