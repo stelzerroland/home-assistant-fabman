@@ -46,22 +46,21 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def is_on(self):
         """Ermittelt den Status anhand der 'lastUsed'-Daten und berücksichtigt Türen."""
-        last_used = self.resource.get("lastUsed", {})
+        last_used = self.resource.get("lastUsed", None)
+
+        # Falls `lastUsed` fehlt, Standardwert setzen
+        if last_used is None:
+            return False  # Maschine ist aus, wenn keine Nutzung erkannt wurde
+
         stop_type = last_used.get("stopType", None)
         control_type = self.resource.get("controlType", "")
         max_offline_usage = self.resource.get("maxOfflineUsage", 0)
 
-        # Falls der Status durch einen Schaltvorgang temporär gesetzt wurde
-        if last_used.get("id") == "temporary_on":
-            return True
-        if last_used.get("id") == "temporary_off":
-            return False
-
         # Standardfall: Maschinenstatus anhand von stopType
         if control_type != "door":
-            return stop_type is None  # ON, wenn stopType nicht gesetzt ist
+            return stop_type is None  # Falls kein stopType vorhanden ist, ist die Maschine an
 
-        # Spezialfall für Türen: Prüfe, ob sie noch offen ist
+        # Spezialfall für Türen: Prüfe, ob die Tür noch offen ist
         last_used_time = last_used.get("at")
         if last_used_time:
             last_used_time = dt_util.parse_datetime(last_used_time)
@@ -69,7 +68,7 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
             if dt_util.utcnow() < close_time:
                 return True  # Tür ist noch offen
 
-        return False  # Tür ist geschlossen
+        return False  # Tür oder Maschine ist aus
 
 
     @property

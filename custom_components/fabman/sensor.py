@@ -44,7 +44,12 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
     @property
     def state(self):
         """Ermittelt den Zustand basierend auf 'lastUsed'-Daten und berücksichtigt Türen."""
-        last_used = self.resource.get("lastUsed", {})
+        last_used = self.resource.get("lastUsed", None)
+
+        # Falls `lastUsed` fehlt, Standardwert setzen
+        if last_used is None:
+            return "off"  # Maschine ist aus, wenn keine Nutzung erkannt wurde
+
         stop_type = last_used.get("stopType", None)
         control_type = self.resource.get("controlType", "")
         max_offline_usage = self.resource.get("maxOfflineUsage", 0)
@@ -61,7 +66,8 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
             if dt_util.utcnow() < close_time:
                 return "on"  # Tür ist noch offen
 
-        return "off"  # Tür ist geschlossen
+        return "off"  # Tür oder Maschine ist aus
+
 
     @property
     def is_on(self):
