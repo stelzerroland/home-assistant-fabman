@@ -44,10 +44,13 @@ Status updates can be received either via **polling** (default) or optionally vi
 ## ⚡ Optional: Webhook Support for Real-Time Updates
 Instead of relying on periodic polling, Fabman Webhooks can be configured for real-time status updates. To use this feature, your Home Assistant instance **must be accessible via HTTPS from the internet**.
 
-### Prerequisites
+### 🔧 Prerequisites
 - Your Home Assistant server must be reachable externally via **HTTPS**.
-- This can be achieved using **port forwarding on your router** and services like **DuckDNS** if you don’t have a static IP address.
-- For setup guidance, refer to resources like [this DuckDNS tutorial](https://www.youtube.com/watch?v=AK5E2T5tWyM).
+- This can be achieved using:
+  - **Port forwarding on your router** and services like **DuckDNS** if you don’t have a static IP address.  
+    👉 For setup guidance, refer to resources like [this DuckDNS tutorial](https://www.youtube.com/watch?v=AK5E2T5tWyM).
+  - **Alternative without port forwarding:** You can use **Cloudflare Tunnel** to expose Home Assistant securely over HTTPS without opening ports on your router.  
+    👉 Learn how to set it up with this **Cloudflare Tunnel tutorial**: [YouTube: Secure Home Assistant with Cloudflare](https://www.youtube.com/watch?v=JGAKzzOmvxg).
 
 ### Webhook Setup in Fabman
 1️⃣ Log in to your Fabman admin panel.  
