@@ -12,15 +12,21 @@ import asyncio
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Richtet die Switch-Plattform ein – nur für Ressourcen mit Bridge."""
+    """Richtet die Switch-Plattform ein – nur für Ressourcen mit Bridge und passendem controlType."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     entities = []
+
     for resource_id, resource in coordinator.data.items():
-        bridge_data = resource.get("_embedded", {}).get("bridge")
-        if bridge_data:
+        bridge_data = resource.get("_embedded", {}).get("bridge")  # Prüfen, ob eine Bridge existiert
+        control_type = resource.get("controlType", "")  # Standardwert: leer
+
+        if bridge_data and control_type in ["machine", "door"]:
             entities.append(FabmanSwitch(coordinator, resource_id))
+            _LOGGER.info(f"✅ Switch für {resource_id} ({control_type}) mit Bridge hinzugefügt.")
         else:
-            _LOGGER.debug("Ressource %s besitzt keine Bridge – Schalter wird nicht erstellt", resource_id)
+            _LOGGER.debug(f"❌ Switch für {resource_id} nicht erstellt. "
+                          f"Bridge vorhanden: {bool(bridge_data)}, controlType: {control_type}")
+
     async_add_entities(entities)
 
 class FabmanSwitch(CoordinatorEntity, SwitchEntity):
@@ -164,21 +170,20 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
                     control_type = self.resource.get("controlType", "")
                     max_offline_usage = self.resource.get("maxOfflineUsage", 0)
 
-                    # Falls Tür: Warte "maxOfflineUsage" Sekunden + 2 Sekunden Puffer
+                    # Falls Tür: Warte "maxOfflineUsage" Sekunden + x Sekunden Puffer
+                    delay = 2  # Standard-Verzögerung für andere Geräte
                     if control_type == "door" and max_offline_usage > 0:
-                        delay = max_offline_usage + 2
+                        delay += max_offline_usage
                         _LOGGER.info(f"🕒 Tür {self._resource_id} bleibt für {max_offline_usage} Sekunden 'on'. "
                                     f"Starte API-Refresh in {delay} Sekunden...")
-                    else:
-                        delay = 2  # Standard-Verzögerung für andere Geräte
 
                     await asyncio.sleep(delay)  # 🔥 Wartezeit setzen
                     await coordinator.async_refresh()
                     _LOGGER.info(f"🔄 API-Refresh für Fabman Resource {self._resource_id} abgeschlossen.")
 
 
-                    await coordinator.async_refresh()
-                    _LOGGER.info(f"🔄 API-Refresh für Fabman Resource {self._resource_id} abgeschlossen.")
+                    #await coordinator.async_refresh()
+                    #_LOGGER.info(f"🔄 API-Refresh für Fabman Resource {self._resource_id} abgeschlossen.")
 
 
 

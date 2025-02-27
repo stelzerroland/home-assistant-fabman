@@ -9,19 +9,26 @@ from .helpers import get_device_info
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up the Fabman sensor platform."""
+    """Setzt die Fabman Sensor-Plattform auf – nur für Ressourcen mit Bridge und passendem controlType."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     entities = []
 
     for resource_id, resource in coordinator.data.items():
-        control_type = resource.get("controlType", "machine")  # Default to 'machine'
-        max_offline_usage = resource.get("maxOfflineUsage", 0)  # Default to 0 if not defined
-        name = resource.get("name", f"Fabman Resource {resource_id}")  # Use resource name
+        bridge_data = resource.get("_embedded", {}).get("bridge")  # Prüfen, ob eine Bridge existiert
+        control_type = resource.get("controlType", "")  # Standardwert: leer
+        max_offline_usage = resource.get("maxOfflineUsage", 0)  # Falls nicht definiert, auf 0 setzen
+        name = resource.get("name", f"Fabman Resource {resource_id}")  # Falls Name fehlt, Standard setzen
 
-        # Korrekte Übergabe aller Parameter an den Sensor-Konstruktor
-        entities.append(FabmanSensor(coordinator, resource_id, name, control_type, max_offline_usage))
+        if bridge_data and control_type in ["machine", "door"]:
+            entities.append(FabmanSensor(coordinator, resource_id, name, control_type, max_offline_usage))
+            _LOGGER.info(f"✅ Sensor für {resource_id} ({control_type}) mit Bridge hinzugefügt.")
+        else:
+            _LOGGER.debug(f"❌ Sensor für {resource_id} nicht erstellt. "
+                          f"Bridge vorhanden: {bool(bridge_data)}, controlType: {control_type}")
 
     async_add_entities(entities)
+
+
 
 class FabmanSensor(CoordinatorEntity, SensorEntity):
     """Sensor zur Anzeige des Maschinenstatus einer Fabman-Ressource."""
