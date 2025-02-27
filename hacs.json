@@ -1,5 +1,5 @@
 {
-    "name": "Fabman Integration",
+    "name": "Fabman",
     "country": "GLOBAL",
     "domains": ["fabman"],
     "homeassistant": "2023.1.0",

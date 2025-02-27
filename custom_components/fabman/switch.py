@@ -29,10 +29,21 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     def __init__(self, coordinator, resource_id):
         """Initialisiert den Schalter anhand des Coordinators und der Resource-ID."""
         super().__init__(coordinator)
+
+        '''
         self._resource_id = resource_id
         self._attr_unique_id = f"fabman_resource_{resource_id}"
         #self._attr_name = self._generate_friendly_name()
         self._attr_name = f"fabman_resource_{resource_id}"
+        '''
+
+        self._resource_id = resource_id
+        self._attr_unique_id = f"fabman_switch_{resource_id}"  # Unique ID for HA
+        name = self.resource.get("name", "Unbekannt")
+        self._attr_name = name  # Friendly name (can be changed by user)
+        self._attr_icon = "mdi:power"  # Custom icon
+        self._attr_device_class = "switch"  # HA device class
+        self._attr_is_on = False  # Default state: off
 
     @property
     def resource(self):
@@ -131,10 +142,11 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
                     # Home Assistant Zustand sofort aktualisieren
                     self.async_write_ha_state()
 
-
+                    '''
                     # Auch den Sensor-Status aktualisieren, damit er direkt mit dem Schalter synchron ist
                     entity_registry = self.coordinator.hass.data.get("entity_registry")
                     sensor_entity_id = f"sensor.fabman_resource_{self._resource_id}"
+                    #sensor_entity_id = f"fabman_sensor_{self.resource_id}"
 
                     # Falls der Sensor existiert, schreibe den neuen Zustand
                     if sensor_entity_id in self.coordinator.hass.states.async_entity_ids():
@@ -142,7 +154,7 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
                         self.coordinator.hass.states.async_set(sensor_entity_id, status)
                     else:
                         _LOGGER.warning(f"⚠️ Sensor {sensor_entity_id} nicht gefunden – kann nicht aktualisiert werden.")
-
+                    '''
 
                     # Starte einen neuen API-Refresh, damit auch die Sensoren neue Daten erhalten
                     _LOGGER.info(f"🕒 Warte ein paar Sekunden, bevor API-Refresh für Fabman Resource {self._resource_id} gestartet wird...")

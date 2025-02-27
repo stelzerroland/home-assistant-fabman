@@ -1,6 +1,6 @@
 {
   "domain": "fabman",
-  "name": "Fabman Integration",
+  "name": "Fabman",
   "documentation": "https://github.com/stelzerroland/home-assistant-fabman",
   "requirements": [],
   "dependencies": [],

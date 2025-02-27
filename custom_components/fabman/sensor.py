@@ -1,40 +1,43 @@
 import logging
-import homeassistant.util.dt as dt_util  # 🔥 Import für Zeithandling
-from datetime import timedelta  # 🔥 Import für Zeitdifferenzen
+import homeassistant.util.dt as dt_util
+from datetime import timedelta
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import DOMAIN, CONF_API_URL
 from .helpers import get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Richtet die Sensor-Plattform ein – ein Sensor pro Fabman-Ressource, die Bridge-Daten besitzt."""
+    """Set up the Fabman sensor platform."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     entities = []
+
     for resource_id, resource in coordinator.data.items():
-        bridge_data = resource.get("_embedded", {}).get("bridge")
-        if not bridge_data:
-            continue  # Ignoriere Ressourcen ohne gültige Bridge-Daten
-        entities.append(FabmanSensor(coordinator, resource_id))
+        control_type = resource.get("controlType", "machine")  # Default to 'machine'
+        max_offline_usage = resource.get("maxOfflineUsage", 0)  # Default to 0 if not defined
+        name = resource.get("name", f"Fabman Resource {resource_id}")  # Use resource name
+
+        # Korrekte Übergabe aller Parameter an den Sensor-Konstruktor
+        entities.append(FabmanSensor(coordinator, resource_id, name, control_type, max_offline_usage))
+
     async_add_entities(entities)
 
 class FabmanSensor(CoordinatorEntity, SensorEntity):
     """Sensor zur Anzeige des Maschinenstatus einer Fabman-Ressource."""
 
-    def __init__(self, coordinator, resource_id):
-        """Initialisiere den Sensor mit dem Coordinator und der Resource-ID."""
+    def __init__(self, coordinator, resource_id, name, control_type, max_offline_usage):
+        """Initialisiere den Sensor mit dem Coordinator, Resource-ID und zusätzlichen Attributen."""
         super().__init__(coordinator)
-        self._resource_id = resource_id
-        self._attr_unique_id = f"fabman_resource_{resource_id}"
-        self._attr_name = f"fabman_resource_{resource_id}"
-        #self._attr_name = self._generate_friendly_name()  # Fix für Namensprobleme
 
-    #def _generate_friendly_name(self):
-    #    """Erstellt einen konsistenten Friendly Name für den Sensor."""
-    #    name = self.resource.get("name", f"Fabman Resource {self._resource_id}")
-    #    return f"{name} Status"
+        self._resource_id = resource_id
+        self._control_type = control_type  # e.g., 'machine' or 'door'
+        self._max_offline_usage = max_offline_usage  # Time a door stays 'open'
+        self._attr_unique_id = f"fabman_sensor_{resource_id}"
+        self._attr_name = f"{name} Status"
+        self._attr_icon = "mdi:power"  # Default icon, can be changed
+        self._attr_device_class = "power"  # Classifies as a power-related device
+        self._attr_state_class = "measurement"  # Used for real-time monitoring
 
     @property
     def resource(self):
@@ -51,28 +54,36 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
             return "off"  # Maschine ist aus, wenn keine Nutzung erkannt wurde
 
         stop_type = last_used.get("stopType", None)
-        control_type = self.resource.get("controlType", "")
-        max_offline_usage = self.resource.get("maxOfflineUsage", 0)
 
         # Standardfall: Maschinenstatus anhand von stopType
-        if control_type != "door":
+        if self._control_type != "door":
             return "on" if stop_type is None else "off"
 
         # Spezialfall für Türen: Prüfe, ob die Tür noch offen ist
         last_used_time = last_used.get("at")
         if last_used_time:
             last_used_time = dt_util.parse_datetime(last_used_time)
-            close_time = last_used_time + timedelta(seconds=max_offline_usage)
+            close_time = last_used_time + timedelta(seconds=self._max_offline_usage)
             if dt_util.utcnow() < close_time:
                 return "on"  # Tür ist noch offen
 
         return "off"  # Tür oder Maschine ist aus
 
-
     @property
     def is_on(self):
         """Gibt True zurück, wenn der Zustand 'on' ist."""
         return self.state == "on"
+
+    @property
+    def extra_state_attributes(self):
+        """Zusätzliche Attribute für das Debugging in Home Assistant."""
+        last_used = self.resource.get("lastUsed", {})
+        return {
+            "last_used_at": last_used.get("at", "Unknown"),
+            "stop_type": last_used.get("stopType", "None"),
+            "resource_type": self._control_type,
+            "max_offline_usage": self._max_offline_usage
+        }
 
     @property
     def device_info(self):
