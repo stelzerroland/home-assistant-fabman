@@ -70,6 +70,10 @@ Since `configuration.yaml` needs to be edited, a File Editor is required.
 ---
 
 ## **6. Making Home Assistant Accessible via Cloudflare Tunnel**
+
+Here's an excellent video guide for setting up a Cloudflare tunnel in HA:  
+📺 [YouTube: How to Setup Home Assistant Remote Access using a Cloudflare Tunnel](https://www.youtube.com/watch?v=JGAKzzOmvxg)
+
 ### **Set Up Cloudflare & Register a Domain**
 1. **Create a Cloudflare account:** [Cloudflare Sign-Up](https://dash.cloudflare.com/sign-up)
 2. **Add a domain to Cloudflare:** If you don’t have one, you can register one for about $10/year.
