@@ -55,6 +55,11 @@ HACS allows installing custom integrations.
 
 ---
 
+### **Fabman Integration is Now Functional**
+At this stage, you already have a working integration, and you can control your Fabman bridges via Home Assistant. However, status updates in HA may be delayed, as they are retrieved through polling at set intervals.
+
+If you require real-time updates, follow the next steps to enable webhooks and make your Home Assistant instance externally accessible. If delayed updates are acceptable, you are all set!
+
 ## **5. Installing File Editor in HA**
 Since `configuration.yaml` needs to be edited, a File Editor is required.
 1. **Go to:**
