@@ -16,8 +16,9 @@ Status updates can be received either via **polling** (default) or optionally vi
 
 ⚠️ **Known Limitations:**  
 ❌ **Webhook setup requires an externally accessible Home Assistant instance** (see setup details below).  
-❌ **Limited testing** – expect potential bugs & issues!  
+❌ **Only Bridge Types "machine" and "door" are supported**
 ❌ **Currently, only basic Fabman API functions are used** – future enhancements planned.  
+❌ **Limited testing** – expect potential bugs & issues!  
 
 ## 🔧 Installation via HACS
 1️⃣ **Ensure HACS is installed in Home Assistant**  
