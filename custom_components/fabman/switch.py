@@ -21,7 +21,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         control_type = resource.get("controlType", "")  # Standardwert: leer
 
         if bridge_data and control_type in ["machine", "door"]:
-            entities.append(FabmanSwitch(coordinator, resource_id))
+            entities.append(FabmanSwitch(coordinator, resource_id, control_type))  # ✅ Jetzt mit control_type!
             _LOGGER.info(f"✅ Switch für {resource_id} ({control_type}) mit Bridge hinzugefügt.")
         else:
             _LOGGER.debug(f"❌ Switch für {resource_id} nicht erstellt. "
@@ -29,27 +29,29 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     async_add_entities(entities)
 
+
 class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     """Repräsentiert einen Fabman-Bridge-Schalter für Ressourcen mit Bridge."""
 
-    def __init__(self, coordinator, resource_id):
+    def __init__(self, coordinator, resource_id, control_type):
         """Initialisiert den Schalter anhand des Coordinators und der Resource-ID."""
         super().__init__(coordinator)
-
-        '''
         self._resource_id = resource_id
-        self._attr_unique_id = f"fabman_resource_{resource_id}"
-        #self._attr_name = self._generate_friendly_name()
-        self._attr_name = f"fabman_resource_{resource_id}"
-        '''
-
-        self._resource_id = resource_id
-        self._attr_unique_id = f"fabman_switch_{resource_id}"  # Unique ID for HA
+        self._attr_unique_id = f"fabman_switch_{resource_id}"  # Unique ID für HA
         name = self.resource.get("name", "Unbekannt")
-        self._attr_name = name  # Friendly name (can be changed by user)
-        self._attr_icon = "mdi:power"  # Custom icon
-        self._attr_device_class = "switch"  # HA device class
-        self._attr_is_on = False  # Default state: off
+        self._control_type = control_type
+        self._attr_name = name  # Anzeigename
+        self._attr_device_class = "switch"  # HA erkennt es als Schalter
+        self._attr_is_on = False  # Standardmäßig aus
+
+    @property
+    def icon(self):
+        """Setzt das Icon je nach `controlType` und Status (`on` oder `off`)."""
+        if self._control_type == "machine":
+            return "mdi:toggle-switch-variant" if self.is_on else "mdi:toggle-switch-variant-off"
+        elif self._control_type == "door":
+            return "mdi:toggle-switch-variant" if self.is_on else "mdi:toggle-switch-variant-off"
+        return "mdi:help-circle"  # Fallback-Icon für unbekannte Typen
 
     @property
     def resource(self):
@@ -60,6 +62,7 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     #    name = self.resource.get("name", "Unbekannt")
     #    return f"{name} Switch ({self._resource_id})"
 
+    
     @property
     def is_on(self):
         """Ermittelt den Status anhand der 'lastUsed'-Daten und berücksichtigt Türen."""
@@ -87,13 +90,13 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
 
         return False  # Tür oder Maschine ist aus
 
-
     @property
     def device_info(self):
         """Erstellt das device_info-Dictionary mithilfe der Hilfsfunktion."""
         api_url = self.coordinator.api_url
         return get_device_info(self.resource, api_url)
 
+    '''
     async def async_turn_on(self, **kwargs):
         """Schaltet die Maschine ein, indem die Fabman API aufgerufen wird."""
         await self._set_machine_status("on")
@@ -101,6 +104,21 @@ class FabmanSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs):
         """Schaltet die Maschine aus, indem die Fabman API aufgerufen wird."""
         await self._set_machine_status("off")
+    '''
+
+    async def async_turn_on(self, **kwargs):
+        """Schaltet die Maschine ein."""
+        await self._set_machine_status("on")
+        self._attr_is_on = True  # Lokalen Status setzen
+        self.async_write_ha_state()  # 🚀 Zustand sofort aktualisieren
+
+    async def async_turn_off(self, **kwargs):
+        """Schaltet die Maschine aus."""
+        await self._set_machine_status("off")
+        self._attr_is_on = False  # Lokalen Status setzen
+        self.async_write_ha_state()  # 🚀 Zustand sofort aktualisieren
+
+
 
     async def _set_machine_status(self, status):
         coordinator = self.coordinator

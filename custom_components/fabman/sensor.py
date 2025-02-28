@@ -36,15 +36,22 @@ class FabmanSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, resource_id, name, control_type, max_offline_usage):
         """Initialisiere den Sensor mit dem Coordinator, Resource-ID und zusätzlichen Attributen."""
         super().__init__(coordinator)
-
         self._resource_id = resource_id
-        self._control_type = control_type  # e.g., 'machine' or 'door'
-        self._max_offline_usage = max_offline_usage  # Time a door stays 'open'
+        self._control_type = control_type  # 'machine' oder 'door'
+        self._max_offline_usage = max_offline_usage  # Tür-Timeout
         self._attr_unique_id = f"fabman_sensor_{resource_id}"
         self._attr_name = f"{name} Status"
-        self._attr_icon = "mdi:power"  # Default icon, can be changed
-        self._attr_device_class = "power"  # Classifies as a power-related device
-        self._attr_state_class = "measurement"  # Used for real-time monitoring
+        self._attr_device_class = "power"  # Automatische Farbgebung aktivieren
+        self._attr_state_class = "measurement"
+
+    @property
+    def icon(self):
+        """Setzt das Icon je nach `controlType` und Status (`on` oder `off`)."""
+        if self._control_type == "machine":
+            return "mdi:power-plug" if self.state == "on" else "mdi:power-plug-off"
+        elif self._control_type == "door":
+            return "mdi:door-open" if self.state == "on" else "mdi:door-closed"
+        return "mdi:help-circle"  # Fallback-Icon für unbekannte Typen
 
     @property
     def resource(self):
