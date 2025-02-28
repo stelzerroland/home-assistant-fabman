@@ -16,7 +16,7 @@ Follow this video guide for installing Home Assistant OS on a Raspberry Pi:
 
 After installation:
 1. **Open Home Assistant:** `http://<raspberrypi-ip>:8123`  (e.g., `http://192.168.0.151:8123` or `http://homeassistant.local:8123`)
-2. **Complete initial setup:** Create a user account, change server name (Settings → System → Network)
+2. **Complete initial setup:** Create a user account,... follow the instructions
 
 ---
 
