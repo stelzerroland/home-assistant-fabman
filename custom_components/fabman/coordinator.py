@@ -1,91 +1,128 @@
-import asyncio
+"""Coordinate Fabman polling and delayed state updates."""
+
 import logging
-import aiohttp
 from datetime import timedelta
 
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-#from .const import UPDATE_INTERVAL, CONF_API_TOKEN, CONF_API_URL, CONF_WEBSOCKET_URL, CONF_ENABLE_PERIODIC_SYNC, CONF_POLL_INTERVAL
-from .const import CONF_API_TOKEN, CONF_API_URL, CONF_ENABLE_PERIODIC_SYNC, CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL #, CONF_WEBSOCKET_URL
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
+
 from .api import FabmanAPI
+from .const import (
+    CONF_API_TOKEN,
+    CONF_API_URL,
+    CONF_ENABLE_PERIODIC_SYNC,
+    CONF_POLL_INTERVAL,
+    DEFAULT_API_URL,
+    DEFAULT_ENABLE_PERIODIC_SYNC,
+    DEFAULT_POLL_INTERVAL,
+)
+from .helpers import get_door_close_time
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
-    """Koordiniert Datenabfragen und verwaltet die WebSocket-Verbindung zu Fabman."""
+    """Fetch resources and own all timers for one config entry."""
 
     def __init__(self, hass, config):
-        self.hass = hass
         self.api_token = config[CONF_API_TOKEN]
-        self.api_url = config.get(CONF_API_URL)
-        #self.websocket_url = config.get(CONF_WEBSOCKET_URL)
-        self.enable_periodic_sync = config.get(CONF_ENABLE_PERIODIC_SYNC)
-        self.poll_interval = config.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL) 
-        self._session = async_get_clientsession(self.hass)
-        #self._websocket_task = None
-        update_interval = timedelta(seconds=self.poll_interval) if self.enable_periodic_sync else None
-
-        _LOGGER.debug("enable_periodic_sync=%s, poll_interval=%s", self.enable_periodic_sync, self.poll_interval)
-        _LOGGER.debug("update_interval=%s", update_interval)
-
+        self.api_url = config.get(CONF_API_URL, DEFAULT_API_URL)
+        self.enable_periodic_sync = config.get(
+            CONF_ENABLE_PERIODIC_SYNC, DEFAULT_ENABLE_PERIODIC_SYNC
+        )
+        self.poll_interval = config.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+        self._session = async_get_clientsession(hass)
+        self._door_timers = {}
+        self._refresh_timers = {}
+        self._unloaded = False
         super().__init__(
             hass,
             _LOGGER,
             name="Fabman Data Coordinator",
-            update_interval=update_interval,
+            update_interval=(
+                timedelta(seconds=self.poll_interval)
+                if self.enable_periodic_sync
+                else None
+            ),
         )
-        self.data = {}  # Speichert die Ressourcen, key ist die resource id
+        self.data = {}
 
     async def _async_update_data(self):
         try:
-            fabman_api = FabmanAPI(self._session, self.api_url, self.api_token)
-            resources = await fabman_api.get_resources()
-            new_data = {}
-            for resource in resources:
-                resource_id = resource.get("id")
-                if resource_id:
-                    new_data[resource_id] = resource
-            return new_data
-        except Exception as e:
-            raise UpdateFailed(f"Exception beim Datenabruf: {e}")
+            resources = await FabmanAPI(
+                self._session, self.api_url, self.api_token
+            ).get_resources()
+        except Exception as err:
+            raise UpdateFailed(f"Error fetching Fabman resources: {err}") from err
+        new_data = {
+            resource["id"]: resource
+            for resource in resources
+            if resource.get("id") is not None
+        }
+        self._schedule_door_updates(new_data)
+        return new_data
 
-    '''
-    async def start_websocket_listener(self):
-        if not self.websocket_url or not self.websocket_url.strip():
-            _LOGGER.info("Keine WebSocket-URL konfiguriert, WebSocket-Listener wird nicht gestartet.")
+    def _schedule_door_updates(self, resources):
+        """Update door states at expiry, even when polling is disabled."""
+        for timer in self._door_timers.values():
+            timer.cancel()
+        self._door_timers.clear()
+        if self._unloaded:
             return
-        while True:
-            try:
-                _LOGGER.debug("Verbinde zu Fabman WebSocket unter %s", self.websocket_url)
-                async with self._session.ws_connect(self.websocket_url) as ws:
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            data = msg.json()
-                            await self._handle_websocket_message(data)
-                        elif msg.type == aiohttp.WSMsgType.ERROR:
-                            _LOGGER.error("WebSocket-Fehler: %s", msg)
-                            break
-            except Exception as e:
-                _LOGGER.error("WebSocket-Verbindungsfehler: %s", e)
-            _LOGGER.debug("Versuche in 10 Sekunden erneut die WebSocket-Verbindung aufzubauen")
-            await asyncio.sleep(10)
+        for resource_id, resource in resources.items():
+            close_time = get_door_close_time(resource)
+            if close_time is None:
+                continue
+            delay = (close_time - dt_util.utcnow()).total_seconds()
+            if delay > 0:
+                self._door_timers[resource_id] = self.hass.loop.call_later(
+                    delay, self._door_expired, resource_id
+                )
 
-    async def _handle_websocket_message(self, message):
-        """Verarbeitet eingehende WebSocket-Nachrichten und aktualisiert die Daten."""
-        resource_id = message.get("resource_id")
-        if not resource_id:
-            _LOGGER.warning("Empfangene Nachricht ohne resource_id: %s", message)
+    def _door_expired(self, resource_id):
+        self._door_timers.pop(resource_id, None)
+        if not self._unloaded:
+            self.async_update_listeners()
+            self.hass.async_create_task(self.async_request_refresh())
+
+    def async_set_resource_status(self, resource_id, is_on):
+        """Publish an optimistic state only after a successful command."""
+        # The resource may have disappeared while the command was in flight.
+        if self._unloaded or resource_id not in self.data:
             return
-        # Aktualisiere vorhandene Resource-Daten oder füge eine neue hinzu
-        if resource_id in self.data:
-            self.data[resource_id].update(message)
-        else:
-            self.data[resource_id] = message
-        _LOGGER.debug("Aktualisierte Daten für resource %s über WebSocket", resource_id)
-        self.async_set_updated_data(self.data)
+        resource = self.data[resource_id].copy()
+        last_used = (resource.get("lastUsed") or {}).copy()
+        last_used.update(
+            at=dt_util.utcnow().isoformat(),
+            stopType=None if is_on else "temporary_off",
+        )
+        resource["lastUsed"] = last_used
+        new_data = {**self.data, resource_id: resource}
+        self._schedule_door_updates(new_data)
+        self.async_set_updated_data(new_data)
+        self.async_schedule_refresh(resource_id)
 
-    async def shutdown(self):
-        """Beendet alle laufenden Tasks (z. B. WebSocket-Listener)."""
-        if self._websocket_task:
-            self._websocket_task.cancel()
-    '''
+    def async_schedule_refresh(self, resource_id, delay=2):
+        """Reconcile a command without delaying the service call."""
+        if self._unloaded:
+            return
+        previous = self._refresh_timers.pop(resource_id, None)
+        if previous is not None:
+            previous.cancel()
+        self._refresh_timers[resource_id] = self.hass.loop.call_later(
+            delay, self._refresh_resource, resource_id
+        )
+
+    def _refresh_resource(self, resource_id):
+        self._refresh_timers.pop(resource_id, None)
+        if not self._unloaded:
+            self.hass.async_create_task(self.async_request_refresh())
+
+    def async_cancel_pending_updates(self):
+        """Cancel callbacks when this entry is unloaded or setup fails."""
+        self._unloaded = True
+        for timers in (self._door_timers, self._refresh_timers):
+            for timer in timers.values():
+                timer.cancel()
+            timers.clear()

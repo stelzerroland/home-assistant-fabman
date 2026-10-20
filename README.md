@@ -63,12 +63,31 @@ Instead of relying on periodic polling, Fabman Webhooks can be configured for re
 
 5️⃣ Save the webhook settings.  
 
+The existing `/api/webhook/fabman_webhook` URL remains supported and refreshes
+all configured Fabman connections. For multiple connections, use a separate URL
+for each one: `/api/webhook/fabman_webhook_<entry_id>`. To find the entry ID,
+evaluate `{{ config_entry_id('switch.your_fabman_resource') }}` under
+**Developer Tools → Template**, replacing the entity ID with one of that
+connection's switches. See the [Home Assistant template reference](https://www.home-assistant.io/template-functions/config_entry_id/).
+Entry-specific webhooks refresh only their own connection. Resource states and
+door timeout settings are always read from the Fabman API.
+
 ## 🔮 Planned Features (Future Development)
 🟢 **Automatic synchronization of new/removed Fabman resources**  
 🟢 **Extended machine information (power usage, sensors, logs)**  
 🟢 **Support for more Fabman API features**  
 
 ## 🛠 Feedback & Development
+
+Regression tests use Python 3.14 and Home Assistant 2026.10.2:
+
+```sh
+python -m venv .venv
+# Activate .venv in your shell, then:
+python -m pip install -r requirements-test.txt
+python -m pytest
+```
+
 ❗ **This integration is under active development & not stable yet!**  
 💡 **Bug reports & feature requests are welcome!**  
 📩 If you want to contribute, please open a **GitHub Issue** or a **Pull Request**.  

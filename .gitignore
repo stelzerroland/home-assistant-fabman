@@ -5,3 +5,9 @@ requirements.txt
 webhook_server.py
 webhook_test.py
 webhook_test.cpython-313.pyc
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pytest_tmp/

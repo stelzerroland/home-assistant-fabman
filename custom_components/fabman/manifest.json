@@ -2,11 +2,11 @@
   "domain": "fabman",
   "name": "Fabman",
   "documentation": "https://github.com/stelzerroland/home-assistant-fabman",
+  "issue_tracker": "https://github.com/stelzerroland/home-assistant-fabman/issues",
   "requirements": [],
-  "dependencies": [],
+  "dependencies": ["webhook"],
   "codeowners": ["@stelzerroland"],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "iot_class": "cloud_polling",
-  "config_flow": true,
-  "brand": "fabman"
+  "config_flow": true
 }
