@@ -97,7 +97,9 @@ async def test_platform_setup_is_passive_and_filters_unsupported_resources(
         side_effect=AssertionError("Status setup must not send POST")
     )
     await async_setup_entry(
-        hass, SimpleNamespace(entry_id="first"), lambda added: entities.extend(added)
+        hass,
+        SimpleNamespace(entry_id="first", async_on_unload=Mock()),
+        lambda added: entities.extend(added),
     )
     assert len(entities) == 4
     assert sum(isinstance(entity, FabmanConnectivitySensor) for entity in entities) == 2

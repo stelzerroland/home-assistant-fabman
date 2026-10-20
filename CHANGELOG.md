@@ -1,3 +1,14 @@
+# v0.2.0b4 (beta)
+
+- Discover new supported resources on all platforms after successful refreshes, without reload.
+- Fetch all four lifecycle states and retain known archived/deleted resources as unavailable.
+- Preserve IDs and user names across source renames, reload and reactivation.
+- Allow manual HA cleanup only for inactive/missing devices after a trustworthy read.
+- Preserve lifecycle filters across pagination and cancel inactive door/command state.
+- Validate with 193 tests on Home Assistant 2026.10.1 and 2026.10.2.
+
+See [details and HACS update instructions](docs/releases/v0.2.0b4.md).
+
 # v0.2.0b3 (beta)
 
 - Add an enabled Connectivity binary sensor on each supported resource's existing device.

@@ -45,6 +45,7 @@ async def coordinator(hass):
             "account": 42,
             "name": "Test resource",
             "controlType": "machine",
+            "state": "active",
             "maxOfflineUsage": 10,
             "lastUsed": None,
             "_embedded": {"bridge": {"id": 2, "offline": False}},

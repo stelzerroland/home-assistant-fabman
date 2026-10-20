@@ -8,16 +8,25 @@ from homeassistant.components.binary_sensor import (
 from .connectivity import bridge_is_connected
 from .const import DOMAIN
 from .entity import FabmanEntity
-from .helpers import is_supported_resource
+from .lifecycle import async_setup_discovery
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    async_add_entities(
-        entity_class(coordinator, resource_id, config_entry.entry_id)
-        for resource_id, resource in coordinator.data.items()
-        if is_supported_resource(resource)
-        for entity_class in (FabmanActivitySensor, FabmanConnectivitySensor)
+    async_setup_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        "binary_sensor",
+        (
+            lambda resource_id, resource: FabmanActivitySensor(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+            lambda resource_id, resource: FabmanConnectivitySensor(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+        ),
+        async_add_entities,
     )
 
 
@@ -47,6 +56,7 @@ class FabmanActivitySensor(FabmanEntity, BinarySensorEntity):
         return {
             "resource_id": self._resource_id,
             "resource_type": self.resource.get("controlType"),
+            "resource_state": self.resource_state,
             "status_source": activity.source,
             "status_reason": activity.reason,
         }
@@ -73,6 +83,7 @@ class FabmanConnectivitySensor(FabmanEntity, BinarySensorEntity):
         return {
             "resource_id": self._resource_id,
             "status_source": "fabman_bridge",
+            "resource_state": self.resource_state,
             "status_reason": (
                 "bridge_connectivity_unknown"
                 if connected is None

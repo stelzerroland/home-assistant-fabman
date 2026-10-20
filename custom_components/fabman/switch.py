@@ -7,16 +7,23 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 from .entity import FabmanEntity
-from .helpers import is_supported_resource
+from .lifecycle import async_setup_discovery
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up supported resources discovered during entry setup."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    async_add_entities(
-        FabmanSwitch(coordinator, resource_id, resource["controlType"])
-        for resource_id, resource in coordinator.data.items()
-        if is_supported_resource(resource)
+    async_setup_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        "switch",
+        (
+            lambda resource_id, resource: FabmanSwitch(
+                coordinator, resource_id, resource["controlType"]
+            ),
+        ),
+        async_add_entities,
     )
 
 
@@ -28,6 +35,10 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
         self._attr_unique_id = f"fabman_switch_{resource_id}"
         self._attr_name = self.resource.get("name", "Unknown")
         self._attr_device_class = "switch"
+
+    @property
+    def name(self):
+        return self.resource_name
 
     @property
     def icon(self):
@@ -52,6 +63,7 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
     def extra_state_attributes(self):
         return {
             "resource_id": self._resource_id,
+            "resource_state": self.resource_state,
             "state_source": (
                 "command_assumption"
                 if self.assumed_state

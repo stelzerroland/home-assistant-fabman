@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_POLL_INTERVAL,
 )
 from .helpers import get_door_close_time, is_supported_resource
+from .lifecycle import resource_is_current
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self.resource_count = 0
         self.invalid_resource_count = 0
         self.supported_resource_count = 0
+        self.inventory_complete = False
         super().__init__(
             hass,
             _LOGGER,
@@ -107,6 +109,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self.last_successful_fetch = dt_util.utcnow()
         self.resource_count = len(resources)
         self.invalid_resource_count = invalid_count
+        self.inventory_complete = invalid_count == 0
         self.supported_resource_count = sum(
             is_supported_resource(resource) for resource in new_data.values()
         )
@@ -118,7 +121,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             if matches and command.is_on and resource.get("controlType") == "door":
                 # An old, still active release cannot acknowledge another opening.
                 matches = resource["lastUsed"]["at"] != command.previous_door_grant
-            if resource is None or matches:
+            if resource is None or not resource_is_current(resource) or matches:
                 self.pending_commands.pop(resource_id)
         self._schedule_door_updates(new_data)
         return new_data
@@ -132,6 +135,9 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
 
     def activity(self, resource_id):
         """Expose observed activity without substituting an assumed command state."""
+        resource = (self.data or {}).get(resource_id)
+        if not resource_is_current(resource):
+            return Activity(None, "resource_inactive_or_missing", "fabman_resource")
         if resource_id in self.pending_commands:
             return Activity(None, "command_unconfirmed", "bridge_command")
         return evaluate_activity((self.data or {}).get(resource_id))
@@ -141,6 +147,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         if self._unloaded:
             return
         self._revision += 1
+        self.inventory_complete = False
         self._schedule_door_updates(data)
         super().async_set_updated_data(data)
 
@@ -152,7 +159,10 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         if self._unloaded:
             return
         for resource_id, resource in resources.items():
-            if bridge_is_connected(resource) is not True:
+            if (
+                not resource_is_current(resource)
+                or bridge_is_connected(resource) is not True
+            ):
                 continue
             close_time = get_door_close_time(resource)
             if close_time is None:
@@ -173,7 +183,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
     def async_note_command(self, resource_id, is_on):
         """Record an accepted command without forging API usage or recovery."""
         # The resource may have disappeared while the command was in flight.
-        if self._unloaded or resource_id not in self.data:
+        if self._unloaded or not resource_is_current(self.data.get(resource_id)):
             return
         self._revision += 1
         resource = self.data[resource_id]

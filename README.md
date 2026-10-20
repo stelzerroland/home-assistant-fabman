@@ -8,7 +8,7 @@ Status updates can be received either via **polling** (default) or optionally vi
 
 ## 🚀 Features (Current State)
 
-The `v0.2.0b3` prerelease adds native `binary_sensor` activity entities alongside
+The `v0.2.0b4` prerelease adds native `binary_sensor` activity entities alongside
 the existing sensors and switches. Unknown or inconsistent usage is reported as
 `unknown`, and failed reads or missing resources as `unavailable`. A pending switch
 command is an explicitly assumed switch state and does not count as observed
@@ -25,14 +25,18 @@ Fabman's explicit `bridge.offline` flag. Offline or unknown connectivity makes
 Activity unknown; API failures make both sensors unavailable. Existing text
 status sensors follow the same activity rule. Both sensors share polling/webhooks
 and require no additional API calls.
+Beta 4 discovers new supported resources automatically after successful refreshes.
+Known archived/deleted resources remain unavailable and can be removed locally
+from HA after a trustworthy inventory check. Reactivation retains identities
+unless manually cleaned up. Source renames preserve HA overrides and entity IDs.
 
 To test the beta, open Fabman in HACS, choose **Redownload**, select
-**Need a different version?**, and choose `v0.2.0b3`. Enable prerelease/beta versions
+**Need a different version?**, and choose `v0.2.0b4`. Enable prerelease/beta versions
 if your HACS version requires it. Restart Home Assistant after downloading.
 Existing configuration and entity identities are preserved. This beta changes
 existing status sensors too: uncertain usage becomes `unknown`, and accepted
 commands are assumed switch states until confirmed. See the
-[beta release notes](docs/releases/v0.2.0b3.md) before updating. To return to the
+[beta release notes](docs/releases/v0.2.0b4.md) before updating. To return to the
 stable version, select `v0.1.1` in HACS and restart Home Assistant again.
 
 ✅ **Automatic discovery** of all Fabman resources via API  

@@ -105,3 +105,27 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not coordinators:
         async_unregister(hass, WEBHOOK_ID)
     return True
+
+
+async def async_remove_config_entry_device(hass, entry, device_entry):
+    """Allow local cleanup only after a successful, trustworthy inventory read."""
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if (
+        coordinator is None
+        or not coordinator.last_update_success
+        or not coordinator.inventory_complete
+    ):
+        return False
+    resource_ids = set()
+    for domain, identifier in device_entry.identifiers:
+        if domain == DOMAIN and identifier.startswith("fabman_resource_"):
+            suffix = identifier.removeprefix("fabman_resource_")
+            if suffix.isdecimal():
+                resource_ids.add(int(suffix))
+    if not resource_ids:
+        return False
+    return all(
+        resource_id not in coordinator.data
+        or coordinator.data[resource_id].get("state") in ("archived", "deleted")
+        for resource_id in resource_ids
+    )

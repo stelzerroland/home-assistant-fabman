@@ -1,7 +1,7 @@
 """Read complete Fabman resource snapshots without exposing response bodies."""
 
 import math
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import aiohttp
 
@@ -36,7 +36,8 @@ class FabmanAPI:
 
     async def get_resources(self):
         resources = []
-        url = f"{self._base_url}/resources?limit=50&embed=bridge"
+        states = ("active", "locked", "archived", "deleted")
+        url = f"{self._base_url}/resources?limit=50&embed=bridge&{urlencode([('state', state) for state in states])}"
         origin = urlsplit(url)
         visited = set()
         expected_count = None
@@ -92,6 +93,22 @@ class FabmanAPI:
                         expected_count = count
                     next_link = response.links.get("next")
                     url = urljoin(url, str(next_link["url"])) if next_link else None
+                    if url:
+                        parts = urlsplit(url)
+                        query = parse_qsl(parts.query, keep_blank_values=True)
+                        next_states = [value for key, value in query if key == "state"]
+                        if next_states and (
+                            len(next_states) != len(states)
+                            or set(next_states) != set(states)
+                        ):
+                            raise FabmanAPIError(
+                                "Inconsistent resource pagination filters"
+                            )
+                        if not next_states:
+                            query.extend(("state", state) for state in states)
+                        if not any(key == "embed" for key, value in query):
+                            query.append(("embed", "bridge"))
+                        url = urlunsplit(parts._replace(query=urlencode(query)))
             if expected_count is not None and expected_count != len(resources):
                 raise FabmanAPIError("Incomplete resource snapshot")
         except (aiohttp.ClientError, TimeoutError, ValueError):

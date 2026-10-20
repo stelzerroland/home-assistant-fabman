@@ -1,6 +1,6 @@
 # Activity implementation: first migration block
 
-This describes the v0.2.0b3 prerelease after v0.1.1. Publishing this beta does not
+This describes the v0.2.0b4 prerelease after v0.1.1. Publishing this beta does not
 change any Happylab installation, MQTT service, external webhook or real bridge.
 
 ## Scope and evidence
@@ -168,6 +168,38 @@ not log raw response bodies, API tokens, member names or transport exception tex
 HTTP 429 records a retry cooldown; subsequent refresh requests cannot bypass the
 server's numeric `Retry-After` delay (at least two seconds).
 
+## Resource inventory and lifecycle
+
+The API explicitly requests all states (`active`, `locked`, `archived`, `deleted`)
+using repeated `state` query parameters. Fabman's default active/locked filter
+cannot distinguish archival from disappearance. Pagination preserves these
+filters and bridge embedding when relative next links omit them; narrowed state
+filters fail the snapshot. A read-only check confirmed the query in the real API.
+
+Each platform listens for accepted coordinator updates. New active/locked supported
+resources get entities once; entity-registry removal clears the corresponding
+tracking entries, including for disabled entities. Discovery listeners are removed
+on config-entry unload. Existing registry entries for archived/deleted resources
+are restored as unavailable on reload; historical inactive resources without such
+entries are not newly created. Missing resources retain registry entries without
+automatic deletion. The `resource_state` attribute distinguishes lifecycle values,
+missing resources and unknown explicit states. Absent state fields retain the
+previous active assumption for backward compatibility.
+
+Archival/deletion prevents availability and switch commands, clears pending
+command assumptions and cancels door timers. Reactivation without manual cleanup
+reuses identities. Source renames update default device/status/switch names,
+without changing entity IDs, user-provided names, areas or disabled preferences.
+
+`async_remove_config_entry_device` permits user-initiated local cleanup for
+archived/deleted or absent resources only after a successful complete inventory
+with no unidentified malformed rows. Active/locked devices and API-error states
+refuse removal. This does not send a deletion to Fabman. Inactive removed devices
+are not rediscovered until reactivated. No automation inputs are rewritten: users
+must review references to retired equipment because unavailable inputs can block
+automatic light-off. Repeated successful snapshots never remove registry devices
+automatically in this migration pilot.
+
 ## Compatibility and remaining work
 
 - Existing sensor/switch unique IDs and device identifiers are unchanged. New IDs
@@ -182,13 +214,12 @@ server's numeric `Retry-After` delay (at least two seconds).
 - Polling remains enabled by default at 30 seconds. With polling disabled, a
   silently lost webhook does not automatically expire a last known machine state;
   webhook-only operation is not approved for the migration.
-- Activity attributes contain only resource ID/type, status source and reason.
+- Activity attributes contain resource ID/type/state, status source and reason.
   Last successful fetch time and resource counts live on the coordinator, rather
   than changing every activity entity's attributes on every poll.
-- Dynamic discovery, options flow and connection validation are later blocks,
-  not implemented here. Bridge connectivity now has its own sensor, but broader
-  diagnostics remain future work. New resources still require reload; missing resources remain unavailable
-  and retain their registry history.
+- New supported resources are discovered after successful refreshes on all three
+  platforms, without reload. Options flow, initial connection validation and
+  broader diagnostics remain future work.
 
 ## Passive test preparation
 

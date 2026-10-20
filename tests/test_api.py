@@ -32,6 +32,13 @@ async def test_85_resources_follow_query_relative_next_link():
     async def handler(request):
         assert request.method == "GET"
         assert request.headers["Authorization"] == "Bearer synthetic-token"
+        assert set(request.query.getall("state")) == {
+            "active",
+            "locked",
+            "archived",
+            "deleted",
+        }
+        assert request.query["embed"] == "bridge"
         offset = int(request.query.get("offset", 0))
         pages.append(offset)
         headers = {"X-Total-Count": "85"}
@@ -183,4 +190,15 @@ async def test_missing_page_is_detected_when_total_count_is_available():
 
     async with fake_api(handler) as api:
         with pytest.raises(FabmanAPIError, match="Incomplete"):
+            await api.get_resources()
+
+
+async def test_pagination_must_not_narrow_lifecycle_filters():
+    async def handler(request):
+        return web.json_response(
+            [machine()], headers={"Link": '<?offset=1&state=active>; rel="next"'}
+        )
+
+    async with fake_api(handler) as api:
+        with pytest.raises(FabmanAPIError, match="pagination filters"):
             await api.get_resources()
