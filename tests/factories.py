@@ -7,7 +7,7 @@ def machine(resource_id=1, *, active=True):
         "account": 42,
         "name": f"Synthetic machine {resource_id}",
         "controlType": "machine",
-        "_embedded": {"bridge": {"id": resource_id + 1000}},
+        "_embedded": {"bridge": {"id": resource_id + 1000, "offline": False}},
         "lastUsed": {
             "at": (
                 "2020-01-01T10:00:00+00:00"

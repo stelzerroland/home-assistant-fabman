@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from copy import deepcopy
 from datetime import timedelta
 from unittest.mock import AsyncMock
 
@@ -12,7 +13,10 @@ from homeassistant.helpers.entity_platform import EntityPlatform
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from custom_components.fabman.binary_sensor import FabmanActivitySensor
+from custom_components.fabman.binary_sensor import (
+    FabmanActivitySensor,
+    FabmanConnectivitySensor,
+)
 from custom_components.fabman.sensor import FabmanSensor
 from custom_components.fabman.switch import FabmanSwitch
 
@@ -54,11 +58,13 @@ async def test_real_registry_grouping_and_states_survive_errors_and_reload(
         platform.config_entry = entry
         platforms[domain] = platform
     binary = FabmanActivitySensor(coordinator, 1, "first")
+    connectivity = FabmanConnectivitySensor(coordinator, 1, "first")
     sensor = FabmanSensor(coordinator, 1, "Synthetic machine 1", "machine", 10)
     switch = FabmanSwitch(coordinator, 1, "machine")
     try:
         for domain, entity in (
             ("binary_sensor", binary),
+            ("binary_sensor", connectivity),
             ("sensor", sensor),
             ("switch", switch),
         ):
@@ -66,23 +72,42 @@ async def test_real_registry_grouping_and_states_survive_errors_and_reload(
             assert entity.entity_id in platforms[domain].entities
         registry = er.async_get(hass)
         entries = [
-            registry.async_get(entity.entity_id) for entity in (binary, sensor, switch)
+            registry.async_get(entity.entity_id)
+            for entity in (binary, sensor, switch, connectivity)
         ]
         assert all(item is not None for item in entries)
         assert len({item.device_id for item in entries}) == 1
         assert entries[0].device_id is not None
         assert entries[0].domain == "binary_sensor"
         assert hass.states.get(binary.entity_id).state == "on"
+        assert hass.states.get(connectivity.entity_id).state == "on"
 
         coordinator.async_set_update_error(UpdateFailed("Simulated outage"))
         assert hass.states.get(binary.entity_id).state == "unavailable"
+        assert hass.states.get(connectivity.entity_id).state == "unavailable"
         coordinator.async_set_updated_data({1: machine()})
         assert hass.states.get(binary.entity_id).state == "on"
+        assert hass.states.get(connectivity.entity_id).state == "on"
+        offline = machine()
+        offline["_embedded"]["bridge"]["offline"] = True
+        coordinator.async_set_updated_data({1: offline})
+        assert hass.states.get(binary.entity_id).state == "unknown"
+        assert hass.states.get(sensor.entity_id).state == "unknown"
+        assert hass.states.get(connectivity.entity_id).state == "off"
+        missing = deepcopy(offline)
+        missing["_embedded"]["bridge"].pop("offline")
+        coordinator.async_set_updated_data({1: missing})
+        assert hass.states.get(binary.entity_id).state == "unknown"
+        assert hass.states.get(connectivity.entity_id).state == "unknown"
+        coordinator.async_set_updated_data({1: machine()})
+        assert hass.states.get(binary.entity_id).state == "on"
+        assert hass.states.get(connectivity.entity_id).state == "on"
         coordinator.async_set_updated_data({1: {**machine(), "lastUsed": {}}})
         assert hass.states.get(binary.entity_id).state == "unknown"
         assert hass.states.get(sensor.entity_id).state == "unknown"
         coordinator.async_set_updated_data({})
         assert hass.states.get(binary.entity_id).state == "unavailable"
+        assert hass.states.get(connectivity.entity_id).state == "unavailable"
         coordinator.async_set_updated_data({1: machine()})
         assert hass.states.get(binary.entity_id).state == "on"
 
@@ -93,11 +118,18 @@ async def test_real_registry_grouping_and_states_survive_errors_and_reload(
         assert assumed.attributes["assumed_state"] is True
         original_entity_id = binary.entity_id
         original_registry_id = entries[0].id
+        connectivity_entity_id = connectivity.entity_id
+        connectivity_registry_id = entries[3].id
         await platforms["binary_sensor"].async_reset()
         replacement = FabmanActivitySensor(coordinator, 1, "first")
-        await platforms["binary_sensor"].async_add_entities([replacement])
+        replacement_connectivity = FabmanConnectivitySensor(coordinator, 1, "first")
+        await platforms["binary_sensor"].async_add_entities(
+            [replacement, replacement_connectivity]
+        )
         assert replacement.entity_id == original_entity_id
         assert registry.async_get(replacement.entity_id).id == original_registry_id
+        assert replacement_connectivity.entity_id == connectivity_entity_id
+        assert registry.async_get(connectivity_entity_id).id == connectivity_registry_id
     finally:
         for platform in platforms.values():
             await platform.async_reset()

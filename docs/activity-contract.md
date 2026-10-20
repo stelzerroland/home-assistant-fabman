@@ -1,6 +1,6 @@
 # Activity implementation: first migration block
 
-This describes the v0.2.0b2 prerelease after v0.1.1. Publishing this beta does not
+This describes the v0.2.0b3 prerelease after v0.1.1. Publishing this beta does not
 change any Happylab installation, MQTT service, external webhook or real bridge.
 
 ## Scope and evidence
@@ -40,7 +40,8 @@ Regression fixtures use synthetic identities and dates with these observed usage
 shapes; they contain no member data or API credentials. The following remain open:
 
 - Whether `lastUsed: null` guarantees that the resource has never been used.
-- Reliable per-bridge online/freshness fields in real resource/bridge responses.
+- Freshness beyond Fabman's server-reported offline detection (including bridges
+  with disabled detection); cloud connectivity is not a physical measurement.
 - Offline use that has not yet reached Fabman. An old ended session cannot prove
   current physical inactivity during offline operation.
 - Door grant timestamps in actual responses, repeated remote switch-on and
@@ -57,7 +58,9 @@ over a stored activity value when Home Assistant publishes an entity state.
 
 | Evidence | Activity result | Reason |
 | --- | --- | --- |
-| Machine with bridge metadata, valid explicit `lastUsed.at`, explicit `stopType: null`, and no end timestamp | `on` | `usage_active` |
+| Bridge explicitly offline | `unknown` | `bridge_offline` |
+| Missing or non-boolean bridge offline flag | `unknown` | `bridge_connectivity_unknown` |
+| Machine with explicitly online bridge, valid explicit `lastUsed.at`, explicit `stopType: null`, and no end timestamp | `on` | `usage_active` |
 | Same machine, recognized ended stop type, valid nonfuture `stoppedAt`, regardless of its order relative to `at` | `off` | `usage_stopped` |
 | `lastUsed` key missing | `unknown` | `usage_missing` |
 | Explicit `lastUsed: null` | `unknown` until never-used semantics are verified | `null_usage_unverified` |
@@ -65,7 +68,7 @@ over a stored activity value when Home Assistant publishes an entity state.
 | Missing, invalid or unrecognized stop type | `unknown` | Specific `stop_type_*` reason |
 | `offline`, `takeover` or `race` | `unknown` | `ambiguous_stop_*` |
 | Missing/invalid/naive/future timestamp, or an active usage with an end timestamp | `unknown` | Timestamp or consistency reason |
-| Door with valid successful grant timestamp and positive finite `maxOfflineUsage`, before deadline | `on` | `door_release_active` |
+| Online door with valid successful grant timestamp and positive finite `maxOfflineUsage`, before deadline | `on` | `door_release_active` |
 | Same door at or after `lastUsed.at + maxOfflineUsage` | `off` | `door_release_expired` |
 | Door with invalid/unknown duration or grant timestamp | `unknown` | `invalid_door_release_window` |
 | Accepted command not confirmed by matching API usage | `unknown` | `command_unconfirmed` |
@@ -74,8 +77,41 @@ over a stored activity value when Home Assistant publishes an entity state.
 Both timestamps must carry a timezone; offsets are compared as absolute instants.
 No arbitrary maximum usage age is imposed on a long-running machine. A
 session-derived `off` describes the API-reported ended session, not a separately
-verified current bridge or hardware state. Unknown bridge freshness is an open
-pilot prerequisite, not silently inferred from successful cloud communication.
+verified current hardware state. The bridge must additionally be explicitly
+online according to the server. Hardware freshness beyond this server flag is
+not silently inferred from successful cloud communication.
+
+## Connectivity
+
+Each supported resource has a second enabled binary sensor named **Connectivity**
+with HA device class `connectivity`, grouped on its existing device. Its unique ID
+is `fabman_connectivity_<entry_id>_<resource_id>`. Home Assistant generates its
+entity ID from the device name and Connectivity, and localizes the state labels.
+
+| Evidence | Connectivity | Activity |
+| --- | --- | --- |
+| `_embedded.bridge.offline: false` | `on` (connected) | Evaluate usage |
+| `_embedded.bridge.offline: true` | `off` (disconnected) | `unknown` |
+| Offline flag missing, null or wrongly typed | `unknown` | `unknown` |
+| API failure or resource absent from complete snapshot | `unavailable` | `unavailable` |
+
+Read-only checks on 2026-10-20 confirmed explicit boolean flags in the existing
+paginated `embed=bridge` response, including an offline machine and offline door.
+The new sensor reuses the coordinator: no additional HTTP requests or polling loop.
+Bridge `inUse`, resource state, timestamps and API success are not substitutes for
+the offline flag. In particular, bridge `updatedAt` is not advertised as a generic
+last-seen sensor without further verification of its semantics.
+
+This is the server's connectivity assessment. Fabman normally marks a bridge
+offline after three missed heartbeat intervals; HA then sees it on the next
+poll/webhook refresh. Disabling polling leaves state dependent on successful
+webhook delivery. Neither sensor claims immediate physical loss detection.
+
+The same activity protection applies to legacy text sensors and observed switch
+states. Pending switch commands retain their explicitly assumed requested state,
+without changing Connectivity or confirming usage while offline. Door timers are
+cancelled while offline or connectivity is unknown, and reconstructed from the
+original grant deadline after a successful online snapshot.
 
 ## Commands and ordering
 
@@ -149,9 +185,9 @@ server's numeric `Retry-After` delay (at least two seconds).
 - Activity attributes contain only resource ID/type, status source and reason.
   Last successful fetch time and resource counts live on the coordinator, rather
   than changing every activity entity's attributes on every poll.
-- Dynamic discovery, options flow, connection validation, connection diagnostics
-  and verified individual bridge connectivity are later blocks, not implemented
-  here. New resources still require reload; missing resources remain unavailable
+- Dynamic discovery, options flow and connection validation are later blocks,
+  not implemented here. Bridge connectivity now has its own sensor, but broader
+  diagnostics remain future work. New resources still require reload; missing resources remain unavailable
   and retain their registry history.
 
 ## Passive test preparation

@@ -10,6 +10,7 @@ from homeassistant.util import dt as dt_util
 
 from .activity import Activity, evaluate_activity
 from .api import FabmanAPI, FabmanAPIError, FabmanRateLimitError
+from .connectivity import bridge_is_connected
 from .const import (
     CONF_API_TOKEN,
     CONF_API_URL,
@@ -151,6 +152,8 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         if self._unloaded:
             return
         for resource_id, resource in resources.items():
+            if bridge_is_connected(resource) is not True:
+                continue
             close_time = get_door_close_time(resource)
             if close_time is None:
                 continue

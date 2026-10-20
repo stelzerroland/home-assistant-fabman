@@ -47,7 +47,7 @@ async def coordinator(hass):
             "controlType": "machine",
             "maxOfflineUsage": 10,
             "lastUsed": None,
-            "_embedded": {"bridge": {"id": 2}},
+            "_embedded": {"bridge": {"id": 2, "offline": False}},
         }
     }
     hass.data[DOMAIN] = {"first": instance}

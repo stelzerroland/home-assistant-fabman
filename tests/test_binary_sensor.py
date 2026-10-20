@@ -12,6 +12,7 @@ from homeassistant.components.binary_sensor import (
 from custom_components.fabman import PLATFORMS
 from custom_components.fabman.binary_sensor import (
     FabmanActivitySensor,
+    FabmanConnectivitySensor,
     async_setup_entry,
 )
 from custom_components.fabman.sensor import FabmanSensor
@@ -98,7 +99,8 @@ async def test_platform_setup_is_passive_and_filters_unsupported_resources(
     await async_setup_entry(
         hass, SimpleNamespace(entry_id="first"), lambda added: entities.extend(added)
     )
-    assert len(entities) == 2
+    assert len(entities) == 4
+    assert sum(isinstance(entity, FabmanConnectivitySensor) for entity in entities) == 2
     assert {entity.extra_state_attributes["resource_id"] for entity in entities} == {
         1,
         2,

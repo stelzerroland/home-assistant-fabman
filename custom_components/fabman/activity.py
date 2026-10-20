@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 
 from homeassistant.util import dt as dt_util
 
+from .connectivity import bridge_is_connected
+
 SOURCE = "fabman_last_used"
 STOPPED_TYPES = frozenset({"normal", "automatic", "filter", "permission"})
 AMBIGUOUS_STOP_TYPES = frozenset({"offline", "takeover", "race"})
@@ -70,6 +72,13 @@ def evaluate_activity(resource, *, now: datetime | None = None) -> Activity:
         return Activity(None, "bridge_data_missing")
     if not embedded["bridge"]:
         return Activity(None, "bridge_data_missing")
+    connected = bridge_is_connected(resource)
+    if connected is not True:
+        return Activity(
+            None,
+            "bridge_offline" if connected is False else "bridge_connectivity_unknown",
+            "fabman_bridge",
+        )
     if "lastUsed" not in resource:
         return Activity(None, "usage_missing")
     usage = resource["lastUsed"]

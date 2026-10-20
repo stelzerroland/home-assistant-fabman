@@ -1,3 +1,13 @@
+# v0.2.0b3 (beta)
+
+- Add an enabled Connectivity binary sensor on each supported resource's existing device.
+- Use only the explicit boolean `bridge.offline` flag for connectivity.
+- Report activity as unknown when the bridge is offline or connectivity is unknown.
+- Keep API errors/resource removal unavailable and reuse existing polling/webhooks.
+- Preserve entity IDs and validate with 177 tests on HA 2026.10.1 and 2026.10.2.
+
+See [details and HACS update instructions](docs/releases/v0.2.0b3.md).
+
 # v0.2.0b2 (beta)
 
 - Fix false `invalid_stop_timestamp` results for completed machine usage.
