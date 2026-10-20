@@ -7,7 +7,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 from .entity import FabmanEntity
-from .helpers import resource_is_on
+from .helpers import is_supported_resource
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -16,8 +16,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities(
         FabmanSwitch(coordinator, resource_id, resource["controlType"])
         for resource_id, resource in coordinator.data.items()
-        if (resource.get("_embedded") or {}).get("bridge")
-        and resource.get("controlType") in ("machine", "door")
+        if is_supported_resource(resource)
     )
 
 
@@ -40,7 +39,25 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        return resource_is_on(self.resource)
+        command = self.coordinator.pending_commands.get(self._resource_id)
+        if command is not None:
+            return command.is_on
+        return self.coordinator.activity(self._resource_id).is_on
+
+    @property
+    def assumed_state(self):
+        return self._resource_id in self.coordinator.pending_commands
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "resource_id": self._resource_id,
+            "state_source": (
+                "command_assumption"
+                if self.assumed_state
+                else self.coordinator.activity(self._resource_id).source
+            ),
+        }
 
     async def async_turn_on(self, **kwargs):
         await self._set_machine_status(True)
@@ -70,4 +87,4 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 f"Unable to control Fabman resource {self._resource_id}"
             ) from err
 
-        self.coordinator.async_set_resource_status(self._resource_id, is_on)
+        self.coordinator.async_note_command(self._resource_id, is_on)

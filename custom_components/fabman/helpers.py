@@ -1,45 +1,32 @@
 """Resource state and device information helpers."""
 
-import math
 import urllib.parse
-from datetime import timedelta
 
-from homeassistant.util import dt as dt_util
-
+from .activity import door_release_deadline, evaluate_activity
 from .const import DOMAIN
 
 
 def get_door_close_time(resource: dict):
-    """Return a valid door timeout, or None for inactive/invalid usage."""
-    if resource.get("controlType") != "door":
-        return None
-    last_used = resource.get("lastUsed") or {}
-    if not last_used or last_used.get("stopType") is not None:
-        return None
-    timestamp = last_used.get("at")
-    if not isinstance(timestamp, str):
-        return None
-    try:
-        started_at = dt_util.parse_datetime(timestamp)
-        seconds = float(resource.get("maxOfflineUsage") or 0)
-        if started_at is None or not math.isfinite(seconds) or seconds <= 0:
-            return None
-        if started_at.tzinfo is None:
-            started_at = started_at.replace(tzinfo=dt_util.UTC)
-        return started_at + timedelta(seconds=seconds)
-    except (TypeError, ValueError, OverflowError):
-        return None
+    """Return the end of a reported door release, not a physical contact state."""
+    return door_release_deadline(resource)
 
 
-def resource_is_on(resource: dict) -> bool:
-    """Use the same status rules for sensors and switches."""
-    last_used = resource.get("lastUsed") or {}
-    if not last_used or last_used.get("stopType") is not None:
+def resource_is_on(resource: dict) -> bool | None:
+    """Return API-reported activity, including an explicitly unknown result."""
+    return evaluate_activity(resource).is_on
+
+
+def is_supported_resource(resource):
+    """Keep malformed bridge metadata local to the affected resource."""
+    if not isinstance(resource, dict):
         return False
-    if resource.get("controlType") == "door":
-        close_time = get_door_close_time(resource)
-        return close_time is not None and dt_util.utcnow() < close_time
-    return True
+    embedded = resource.get("_embedded")
+    return (
+        resource.get("controlType") in ("machine", "door")
+        and isinstance(embedded, dict)
+        and isinstance(embedded.get("bridge"), dict)
+        and bool(embedded["bridge"])
+    )
 
 
 def get_base_url(api_url: str) -> str:

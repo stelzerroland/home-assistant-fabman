@@ -29,10 +29,13 @@ def session_with_status(status):
     return Mock(post=Mock(return_value=context))
 
 
-async def test_null_last_used_is_a_valid_off_sensor(coordinator):
+async def test_null_last_used_is_unknown_until_never_used_semantics_are_verified(
+    coordinator,
+):
     switch, sensor = entities(coordinator)
-    assert not switch.is_on
-    assert sensor.state == "off"
+    assert switch.is_on is None
+    assert sensor.state is None
+    assert sensor.extra_state_attributes["status_reason"] == "null_usage_unverified"
     assert sensor.extra_state_attributes["last_used_at"] == "Unknown"
     assert sensor.device_class is None
     assert sensor.state_class is None
@@ -73,12 +76,13 @@ async def test_connection_errors_reach_caller(coordinator, error):
 
 
 @pytest.mark.parametrize("control_type", ["machine", "door"])
-async def test_success_updates_both_entities_and_returns_without_sleep(
+async def test_success_reports_an_assumption_without_forging_activity(
     coordinator, control_type
 ):
     coordinator.data[1]["controlType"] = control_type
     switch, sensor = entities(coordinator)
     session = session_with_status(201)
+    before = deepcopy(coordinator.data)
     listener = Mock()
     remove_listener = coordinator.async_add_listener(listener)
     try:
@@ -88,13 +92,20 @@ async def test_success_updates_both_entities_and_returns_without_sleep(
         ):
             await asyncio.wait_for(switch.async_turn_on(), timeout=0.5)
             assert switch.is_on
-            assert sensor.state == "on"
-            assert coordinator.data[1]["lastUsed"]["at"]
+            assert switch.assumed_state
+            assert switch.extra_state_attributes["state_source"] == "command_assumption"
+            assert sensor.state is None
+            assert (
+                sensor.extra_state_attributes["status_reason"] == "command_unconfirmed"
+            )
+            assert coordinator.data == before
             listener.assert_called()
             assert coordinator._refresh_timers
             await asyncio.wait_for(switch.async_turn_off(), timeout=0.5)
             assert not switch.is_on
-            assert sensor.state == "off"
+            assert switch.assumed_state
+            assert sensor.state is None
+            assert coordinator.data == before
         assert session.post.call_count == 2
     finally:
         remove_listener()
@@ -109,7 +120,7 @@ async def test_missing_resource_becomes_unavailable_and_retains_identity(coordin
     assert (switch.device_info, sensor.device_info) == identities
     with pytest.raises(HomeAssistantError, match="unavailable"):
         await switch.async_turn_on()
-    coordinator.async_set_resource_status(1, True)
+    coordinator.async_note_command(1, True)
     assert coordinator.data == {}
 
 
@@ -120,13 +131,13 @@ async def test_coordinator_failure_marks_entities_unavailable(coordinator):
     assert not sensor.available
 
 
-async def test_expired_door_is_off_in_both_entities(coordinator):
+async def test_expired_door_release_is_off_without_server_off_event(coordinator):
     coordinator.data[1].update(
         controlType="door",
         lastUsed={"at": (dt_util.utcnow() - timedelta(seconds=20)).isoformat()},
     )
     switch, sensor = entities(coordinator)
-    assert not switch.is_on
+    assert switch.is_on is False
     assert sensor.state == "off"
 
 
@@ -134,5 +145,5 @@ async def test_expired_door_is_off_in_both_entities(coordinator):
 async def test_invalid_door_timestamp_does_not_crash(coordinator, timestamp):
     coordinator.data[1].update(controlType="door", lastUsed={"at": timestamp})
     switch, sensor = entities(coordinator)
-    assert not switch.is_on
-    assert sensor.state == "off"
+    assert switch.is_on is None
+    assert sensor.state is None

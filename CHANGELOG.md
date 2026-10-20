@@ -1,3 +1,14 @@
+# v0.2.0b1 (beta)
+
+- Add native binary activity sensors while preserving existing device and entity identities.
+- Represent ambiguous usage as unknown and accepted commands as assumed switch states.
+- End door release locally at the grant timestamp plus maxOfflineUsage, without a server off event.
+- Validate complete paginated snapshots and protect newer state from outdated reads.
+- Validate with 138 tests on Home Assistant 2026.10.1 and 2026.10.2.
+
+This prerelease changes existing status behavior and is intended for passive testing.
+See [installation, behavior changes and rollback](docs/releases/v0.2.0b1.md).
+
 # v0.1.1
 
 This release fixes resource status updates, bridge command errors and webhook

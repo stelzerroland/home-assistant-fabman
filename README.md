@@ -7,6 +7,26 @@ This **custom integration** for **Home Assistant** allows you to display and con
 Status updates can be received either via **polling** (default) or optionally via **Webhooks** for real-time updates.  
 
 ## 🚀 Features (Current State)
+
+The `v0.2.0b1` prerelease adds native `binary_sensor` activity entities alongside
+the existing sensors and switches. Unknown or inconsistent usage is reported as
+`unknown`, and failed reads or missing resources as `unavailable`. A pending switch
+command is an explicitly assumed switch state and does not count as observed
+activity. Door release stays on for `maxOfflineUsage` seconds after a reported
+successful grant, then turns off locally without a server off event. This is no
+physical door contact. Never-used/null semantics await verification.
+See the [activity contract and migration limitations](docs/activity-contract.md)
+before preparing a passive pilot. This beta has not been validated on real hardware.
+
+To test the beta, open Fabman in HACS, choose **Redownload**, select
+**Need a different version?**, and choose `v0.2.0b1`. Enable prerelease/beta versions
+if your HACS version requires it. Restart Home Assistant after downloading.
+Existing configuration and entity identities are preserved. This beta changes
+existing status sensors too: uncertain usage becomes `unknown`, and accepted
+commands are assumed switch states until confirmed. See the
+[beta release notes](docs/releases/v0.2.0b1.md) before updating. To return to the
+stable version, select `v0.1.1` in HACS and restart Home Assistant again.
+
 ✅ **Automatic discovery** of all Fabman resources via API  
 ✅ **Status monitoring** of machines as **sensors** (on/off)  
 ✅ **Control machines** with a Fabman Bridge via **switch entities**  

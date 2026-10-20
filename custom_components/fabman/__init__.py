@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Keep existing installations' configured endpoint working during upgrades.
 WEBHOOK_ID = "fabman_webhook"
-PLATFORMS = ["switch", "sensor"]
+PLATFORMS = ["switch", "sensor", "binary_sensor"]
 
 
 def entry_webhook_id(entry_id):
@@ -31,6 +31,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     registered = []
     try:
         await coordinator.async_config_entry_first_refresh()
+        if isinstance(coordinator.data, dict) and any(
+            isinstance(other.data, dict) and coordinator.data.keys() & other.data.keys()
+            for other in coordinators.values()
+        ):
+            _LOGGER.warning(
+                "Overlapping Fabman resource IDs across entries: legacy sensor/switch "
+                "IDs can collide. Activity sensor IDs are scoped to each entry"
+            )
         coordinators[entry.entry_id] = coordinator
         async_register(hass, DOMAIN, "Fabman Webhook", webhook_id, handle_webhook)
         registered.append(webhook_id)

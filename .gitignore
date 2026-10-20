@@ -6,6 +6,7 @@ webhook_server.py
 webhook_test.py
 webhook_test.cpython-313.pyc
 .venv/
+.venv-ha-*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
