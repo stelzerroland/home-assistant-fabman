@@ -1,3 +1,13 @@
+# v0.2.0b2 (beta)
+
+- Fix false `invalid_stop_timestamp` results for completed machine usage.
+  `lastUsed.at` can reflect a log update after `stoppedAt`; it is not a usage start.
+- Preserve unknown for invalid timestamps, ambiguous offline stops and null usage.
+- Add regression cases based on usage shapes observed in authorized read-only API checks.
+- Validate with 155 tests on Home Assistant 2026.10.1 and 2026.10.2.
+
+See [details and HACS update instructions](docs/releases/v0.2.0b2.md).
+
 # v0.2.0b1 (beta)
 
 - Add native binary activity sensors while preserving existing device and entity identities.

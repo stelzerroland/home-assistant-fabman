@@ -8,7 +8,7 @@ Status updates can be received either via **polling** (default) or optionally vi
 
 ## 🚀 Features (Current State)
 
-The `v0.2.0b1` prerelease adds native `binary_sensor` activity entities alongside
+The `v0.2.0b2` prerelease adds native `binary_sensor` activity entities alongside
 the existing sensors and switches. Unknown or inconsistent usage is reported as
 `unknown`, and failed reads or missing resources as `unavailable`. A pending switch
 command is an explicitly assumed switch state and does not count as observed
@@ -17,14 +17,17 @@ successful grant, then turns off locally without a server off event. This is no
 physical door contact. Never-used/null semantics await verification.
 See the [activity contract and migration limitations](docs/activity-contract.md)
 before preparing a passive pilot. This beta has not been validated on real hardware.
+Beta 2 fixes false unknown states for completed machine usage: `lastUsed.at`
+can reflect a log update after `stoppedAt` and must not be treated as usage start.
+The correction was checked against read-only API data; no hardware was switched.
 
 To test the beta, open Fabman in HACS, choose **Redownload**, select
-**Need a different version?**, and choose `v0.2.0b1`. Enable prerelease/beta versions
+**Need a different version?**, and choose `v0.2.0b2`. Enable prerelease/beta versions
 if your HACS version requires it. Restart Home Assistant after downloading.
 Existing configuration and entity identities are preserved. This beta changes
 existing status sensors too: uncertain usage becomes `unknown`, and accepted
 commands are assumed switch states until confirmed. See the
-[beta release notes](docs/releases/v0.2.0b1.md) before updating. To return to the
+[beta release notes](docs/releases/v0.2.0b2.md) before updating. To return to the
 stable version, select `v0.1.1` in HACS and restart Home Assistant again.
 
 ✅ **Automatic discovery** of all Fabman resources via API  

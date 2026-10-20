@@ -98,8 +98,8 @@ def evaluate_activity(resource, *, now: datetime | None = None) -> Activity:
         return Activity(None, f"ambiguous_stop_{stop_type}")
     if stop_type is not None and stop_type not in STOPPED_TYPES:
         return Activity(None, "unknown_stop_type")
-    started = _timestamp(usage.get("at"), now)
-    if started is None:
+    reported_at = _timestamp(usage.get("at"), now)
+    if reported_at is None:
         return Activity(None, "invalid_usage_timestamp")
     stopped_at = usage.get("stoppedAt")
     if stop_type is None:
@@ -107,6 +107,9 @@ def evaluate_activity(resource, *, now: datetime | None = None) -> Activity:
             return Activity(None, "inconsistent_usage")
         return Activity(True, "usage_active")
     stopped = _timestamp(stopped_at, now)
-    if stopped is None or stopped < started:
+    # Resource lastUsed.at reflects log updates, not necessarily usage start.
+    # In observed API responses it equals the log's updatedAt, including updates
+    # made hours after stoppedAt. Do not compare it to the stop as a start time.
+    if stopped is None:
         return Activity(None, "invalid_stop_timestamp")
     return Activity(False, "usage_stopped")

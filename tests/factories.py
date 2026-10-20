@@ -1,4 +1,4 @@
-"""Entirely synthetic examples, not captures from members or real bridges."""
+"""Synthetic identities/dates with usage shapes checked against read-only API data."""
 
 
 def machine(resource_id=1, *, active=True):
@@ -9,7 +9,12 @@ def machine(resource_id=1, *, active=True):
         "controlType": "machine",
         "_embedded": {"bridge": {"id": resource_id + 1000}},
         "lastUsed": {
-            "at": "2020-01-01T10:00:00+00:00",
+            "at": (
+                "2020-01-01T10:00:00+00:00"
+                if active
+                else "2020-01-01T11:00:00.002+00:00"
+            ),
+            "type": "allowed",
             "stopType": None if active else "normal",
             "stoppedAt": None if active else "2020-01-01T11:00:00+00:00",
         },

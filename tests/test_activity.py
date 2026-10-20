@@ -55,7 +55,7 @@ def test_ambiguous_stops_do_not_claim_machine_inactivity(stop_type):
 
 
 @pytest.mark.parametrize("stop_type", ["normal", "automatic", "filter", "permission"])
-def test_known_stops_require_a_consistent_end_timestamp(stop_type):
+def test_known_stops_require_a_valid_end_timestamp(stop_type):
     resource = machine(active=False)
     resource["lastUsed"]["stopType"] = stop_type
     assert evaluate_activity(resource, now=NOW).is_on is False
@@ -80,13 +80,45 @@ def test_invalid_naive_or_future_timestamp_is_unknown(timestamp):
     assert evaluate_activity(resource, now=NOW).is_on is None
 
 
-def test_end_before_start_and_active_with_end_are_unknown():
-    resource = machine(active=False)
-    resource["lastUsed"]["stoppedAt"] = "2019-01-01T00:00:00Z"
-    assert evaluate_activity(resource, now=NOW).is_on is None
+def test_active_usage_with_end_is_unknown():
     resource = machine()
     resource["lastUsed"]["stoppedAt"] = "2020-01-01T11:00:00Z"
     assert evaluate_activity(resource, now=NOW).is_on is None
+
+
+@pytest.mark.parametrize("stop_type", ["normal", "automatic", "filter", "permission"])
+@pytest.mark.parametrize(
+    "reported_at",
+    [
+        "2020-01-01T10:00:00Z",  # Before stop, supported by older synthetic examples.
+        "2020-01-01T11:00:00.002Z",  # Log update a few milliseconds after stop.
+        "2020-01-02T18:45:00Z",  # A later log update must not look like a new start.
+    ],
+)
+def test_stopped_usage_does_not_treat_last_used_at_as_start(stop_type, reported_at):
+    resource = machine(active=False)
+    resource["lastUsed"].update(at=reported_at, stopType=stop_type)
+    result = evaluate_activity(resource, now=NOW)
+    assert result.is_on is False
+    assert result.reason == "usage_stopped"
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        None,
+        123,
+        "invalid",
+        "2020-01-01T11:00:00",
+        (NOW + timedelta(seconds=1)).isoformat(),
+    ],
+)
+def test_stopped_usage_still_requires_a_valid_aware_nonfuture_stop(timestamp):
+    resource = machine(active=False)
+    resource["lastUsed"]["stoppedAt"] = timestamp
+    result = evaluate_activity(resource, now=NOW)
+    assert result.is_on is None
+    assert result.reason == "invalid_stop_timestamp"
 
 
 def test_timezone_offsets_are_compared_as_instants():

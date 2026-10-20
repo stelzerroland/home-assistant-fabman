@@ -1,6 +1,6 @@
 # Activity implementation: first migration block
 
-This describes the v0.2.0b1 prerelease after v0.1.1. Publishing this beta does not
+This describes the v0.2.0b2 prerelease after v0.1.1. Publishing this beta does not
 change any Happylab installation, MQTT service, external webhook or real bridge.
 
 ## Scope and evidence
@@ -27,8 +27,17 @@ The interpretation is based on:
   be pending; resource response schemas are incomplete and do not establish every
   null/missing-field meaning.
 
-Fixtures are synthetic examples consistent with these documented fields, not
-captures from real installations. In particular, the following are still open:
+On 2026-10-20, authorized read-only queries compared resource summaries with two
+corresponding resource-log records. In both cases `lastUsed.at` matched the log's
+`updatedAt`, not `createdAt`. Among 105 supported resources, 71 completed machine
+usages had valid `stoppedAt` values earlier than `lastUsed.at`. Differences ranged
+from one millisecond to several hours. The b1 requirement `stoppedAt >= at` was
+therefore incorrect and has been removed. This does not change validation of
+missing, malformed, naive or future timestamps. No general usage duration is
+derived from resource `lastUsed.at`.
+
+Regression fixtures use synthetic identities and dates with these observed usage
+shapes; they contain no member data or API credentials. The following remain open:
 
 - Whether `lastUsed: null` guarantees that the resource has never been used.
 - Reliable per-bridge online/freshness fields in real resource/bridge responses.
@@ -49,13 +58,13 @@ over a stored activity value when Home Assistant publishes an entity state.
 | Evidence | Activity result | Reason |
 | --- | --- | --- |
 | Machine with bridge metadata, valid explicit `lastUsed.at`, explicit `stopType: null`, and no end timestamp | `on` | `usage_active` |
-| Same machine, recognized ended stop type, valid `stoppedAt >= at` | `off` | `usage_stopped` |
+| Same machine, recognized ended stop type, valid nonfuture `stoppedAt`, regardless of its order relative to `at` | `off` | `usage_stopped` |
 | `lastUsed` key missing | `unknown` | `usage_missing` |
 | Explicit `lastUsed: null` | `unknown` until never-used semantics are verified | `null_usage_unverified` |
 | Empty or wrongly typed usage data | `unknown` | `invalid_usage` |
 | Missing, invalid or unrecognized stop type | `unknown` | Specific `stop_type_*` reason |
 | `offline`, `takeover` or `race` | `unknown` | `ambiguous_stop_*` |
-| Missing/invalid/naive/future timestamp, inconsistent start/end | `unknown` | Timestamp or consistency reason |
+| Missing/invalid/naive/future timestamp, or an active usage with an end timestamp | `unknown` | Timestamp or consistency reason |
 | Door with valid successful grant timestamp and positive finite `maxOfflineUsage`, before deadline | `on` | `door_release_active` |
 | Same door at or after `lastUsed.at + maxOfflineUsage` | `off` | `door_release_expired` |
 | Door with invalid/unknown duration or grant timestamp | `unknown` | `invalid_door_release_window` |
