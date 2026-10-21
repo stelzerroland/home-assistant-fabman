@@ -8,7 +8,7 @@ Status updates can be received either via **polling** (default) or optionally vi
 
 ## 🚀 Features (Current State)
 
-The `v0.2.0b4` prerelease adds native `binary_sensor` activity entities alongside
+The `v0.2.0b5` prerelease adds native `binary_sensor` activity entities alongside
 the existing sensors and switches. Unknown or inconsistent usage is reported as
 `unknown`, and failed reads or missing resources as `unavailable`. A pending switch
 command is an explicitly assumed switch state and does not count as observed
@@ -16,7 +16,8 @@ activity. Door release stays on for `maxOfflineUsage` seconds after a reported
 successful grant, then turns off locally without a server off event. This is no
 physical door contact. Never-used/null semantics await verification.
 See the [activity contract and migration limitations](docs/activity-contract.md)
-before preparing a passive pilot. This beta has not been validated on real hardware.
+before preparing a passive pilot. A targeted live door release check passed;
+broader production comparison remains necessary.
 Beta 2 fixes false unknown states for completed machine usage: `lastUsed.at`
 can reflect a log update after `stoppedAt` and must not be treated as usage start.
 The correction was checked against read-only API data; no hardware was switched.
@@ -29,14 +30,17 @@ Beta 4 discovers new supported resources automatically after successful refreshe
 Known archived/deleted resources remain unavailable and can be removed locally
 from HA after a trustworthy inventory check. Reactivation retains identities
 unless manually cleaned up. Source renames preserve HA overrides and entity IDs.
+Beta 5 clears an assumed door-on command when a new successful release is
+already expired by the time reconciliation reads it. Old grants do not confirm
+new opens; the usage baseline is captured before posting the command.
 
 To test the beta, open Fabman in HACS, choose **Redownload**, select
-**Need a different version?**, and choose `v0.2.0b4`. Enable prerelease/beta versions
+**Need a different version?**, and choose `v0.2.0b5`. Enable prerelease/beta versions
 if your HACS version requires it. Restart Home Assistant after downloading.
 Existing configuration and entity identities are preserved. This beta changes
 existing status sensors too: uncertain usage becomes `unknown`, and accepted
 commands are assumed switch states until confirmed. See the
-[beta release notes](docs/releases/v0.2.0b4.md) before updating. To return to the
+[beta release notes](docs/releases/v0.2.0b5.md) before updating. To return to the
 stable version, select `v0.1.1` in HACS and restart Home Assistant again.
 
 ✅ **Automatic discovery** of all Fabman resources via API  

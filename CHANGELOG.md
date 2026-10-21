@@ -1,3 +1,13 @@
+# v0.2.0b5 (beta)
+
+- Fix assumed door switches staying on when a short release ends before reconciliation.
+- A new successful door grant confirms the opening even if its release already expired.
+- Prefer usage IDs over update timestamps; capture the baseline before posting the command.
+- Preserve unknown for old grants, offline bridges, denied or invalid usage.
+- Validate with 203 tests on HA 2026.10.1 and 2026.10.2 and a targeted authorized live door test.
+
+See [details and HACS update instructions](docs/releases/v0.2.0b5.md).
+
 # v0.2.0b4 (beta)
 
 - Discover new supported resources on all platforms after successful refreshes, without reload.

@@ -80,6 +80,7 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
     async def _set_machine_status(self, is_on):
         if not self.available:
             raise HomeAssistantError("Fabman resource is unavailable")
+        previous_resource = self.resource
         action = "switch-on" if is_on else "switch-off"
         url = (
             f"{self.coordinator.api_url.rstrip('/')}/resources/"
@@ -99,4 +100,6 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 f"Unable to control Fabman resource {self._resource_id}"
             ) from err
 
-        self.coordinator.async_note_command(self._resource_id, is_on)
+        self.coordinator.async_note_command(
+            self._resource_id, is_on, previous_resource=previous_resource
+        )

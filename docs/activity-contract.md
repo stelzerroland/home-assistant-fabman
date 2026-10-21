@@ -1,7 +1,9 @@
 # Activity implementation: first migration block
 
-This describes the v0.2.0b4 prerelease after v0.1.1. Publishing this beta does not
-change any Happylab installation, MQTT service, external webhook or real bridge.
+This describes the v0.2.0b5 prerelease after v0.1.1. Publishing this beta does not
+change any Happylab installation, MQTT service or external webhook. On 2026-10-21
+the owner separately authorized two three-second opening tests of one door;
+no other equipment or Fabman configuration was changed.
 
 ## Scope and evidence
 
@@ -124,13 +126,27 @@ For a light blueprint that only reacts to an explicit `off` to `on` transition,
 conservative behavior must be included in the later pilot acceptance cases;
 production automations are not changed here.
 
-A contradictory subsequent response does not confirm the command. There is no
+A contradictory machine response does not confirm the command. There is no
 invented expiry that turns it into off. The assumption can remain until matching
 evidence, another command, disappearance of the resource, reload or unload.
 Polling `/bridge-commands/{id}` for actual command completion is not implemented
-in this first block. A door switch-on requires a new successful grant timestamp
-in a subsequent API read; an unchanged previous grant cannot confirm it. A bare
-HTTP 201 never starts a release timer.
+in this first block. A door switch-on requires a new successful grant in a
+subsequent API read. A valid new grant confirms that opening occurred even if
+its release window already expired before the read arrived: the assumption is
+cleared and the observed state is off, rather than remaining assumed on forever.
+No artificial on window is created at that delayed observation time.
+
+When the previous usage has an integer ID, the new grant must have a different
+integer ID. A timestamp update of the same usage is insufficient. For older
+responses without a baseline usage ID, the timestamp comparison remains a fallback.
+Explicit denied usage, offline bridges and invalid release windows cannot confirm
+a door opening. The baseline is captured before the command POST, so a new grant
+arriving during the POST is not mistaken for the old grant. A bare HTTP 201 never
+starts a release timer.
+
+The delayed-expired-grant regression failed on b4 and passed after the fix. A
+targeted authorized live check using the corrected switch/coordinator observed
+off -> assumed on -> confirmed on -> off with a three-second release.
 
 A revision barrier discards the result or error of a read started before a newer
 confirmed update or command. A debounced follow-up fetch is scheduled. Request

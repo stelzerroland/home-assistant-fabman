@@ -375,3 +375,41 @@ async def test_disabled_entity_is_not_rediscovered_and_manual_cleanup_is_respect
     # HA may retain the user's disabled preference in its deleted-entry cache.
     entries = er.async_entries_for_config_entry(runtime.registry, "first")
     assert len(entries) == 4
+
+
+async def test_expired_door_acknowledgement_publishes_off_in_ha(
+    runtime, coordinator, hass
+):
+    from homeassistant.util import dt as dt_util
+
+    original = machine(active=False)
+    original.update(controlType="door", maxOfflineUsage=3)
+    original["lastUsed"]["id"] = 10
+    coordinator.async_set_updated_data({1: original})
+    await runtime.setup()
+    coordinator.async_note_command(1, True)
+    entities = runtime.entities()
+    door_switch = next(
+        e for e in entities.values() if isinstance(e, switch.FabmanSwitch)
+    )
+    assert hass.states.get(door_switch.entity_id).state == "on"
+    assert hass.states.get(door_switch.entity_id).attributes["assumed_state"]
+    reported = deepcopy(original)
+    at = (dt_util.utcnow() - timedelta(seconds=5)).isoformat()
+    reported["lastUsed"].update(id=11, at=at, stoppedAt=at)
+    with patch(
+        "custom_components.fabman.coordinator.FabmanAPI.get_resources",
+        new=AsyncMock(return_value=[reported]),
+    ):
+        await coordinator.async_refresh()
+    await runtime.flush()
+    for entity in entities.values():
+        expected = (
+            "on"
+            if isinstance(entity, binary_sensor.FabmanConnectivitySensor)
+            else "off"
+        )
+        assert hass.states.get(entity.entity_id).state == expected
+    assert not hass.states.get(door_switch.entity_id).attributes.get(
+        "assumed_state", False
+    )

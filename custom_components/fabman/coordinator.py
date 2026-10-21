@@ -32,6 +32,7 @@ class PendingCommand:
 
     is_on: bool
     previous_door_grant: str | None = None
+    previous_door_usage_id: int | None = None
 
 
 class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
@@ -115,12 +116,29 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         )
         for resource_id, command in list(self.pending_commands.items()):
             resource = new_data.get(resource_id)
-            matches = resource is not None and (
-                evaluate_activity(resource).is_on is command.is_on
-            )
-            if matches and command.is_on and resource.get("controlType") == "door":
-                # An old, still active release cannot acknowledge another opening.
-                matches = resource["lastUsed"]["at"] != command.previous_door_grant
+            observed = evaluate_activity(resource)
+            matches = resource is not None and observed.is_on is command.is_on
+            if (
+                resource is not None
+                and command.is_on
+                and resource.get("controlType") == "door"
+            ):
+                usage = resource.get("lastUsed")
+                # A short release can already be over when the snapshot arrives.
+                # Its new successful grant still acknowledges the opening command.
+                matches = (
+                    observed.reason in ("door_release_active", "door_release_expired")
+                    and isinstance(usage, dict)
+                    and usage.get("type", "allowed") == "allowed"
+                )
+                if matches:
+                    if command.previous_door_usage_id is not None:
+                        matches = (
+                            type(usage.get("id")) is int
+                            and usage["id"] != command.previous_door_usage_id
+                        )
+                    else:
+                        matches = usage["at"] != command.previous_door_grant
             if resource is None or not resource_is_current(resource) or matches:
                 self.pending_commands.pop(resource_id)
         self._schedule_door_updates(new_data)
@@ -180,20 +198,33 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             # Listener notification must not change API availability or raw usage.
             self.async_update_listeners()
 
-    def async_note_command(self, resource_id, is_on):
+    def async_note_command(self, resource_id, is_on, *, previous_resource=None):
         """Record an accepted command without forging API usage or recovery."""
         # The resource may have disappeared while the command was in flight.
         if self._unloaded or not resource_is_current(self.data.get(resource_id)):
             return
         self._revision += 1
-        resource = self.data[resource_id]
+        resource = (
+            previous_resource
+            if previous_resource is not None
+            else self.data[resource_id]
+        )
         usage = resource.get("lastUsed")
         previous_grant = (
             usage.get("at")
             if resource.get("controlType") == "door" and isinstance(usage, dict)
             else None
         )
-        self.pending_commands[resource_id] = PendingCommand(is_on, previous_grant)
+        previous_usage_id = (
+            usage.get("id")
+            if resource.get("controlType") == "door"
+            and isinstance(usage, dict)
+            and type(usage.get("id")) is int
+            else None
+        )
+        self.pending_commands[resource_id] = PendingCommand(
+            is_on, previous_grant, previous_usage_id
+        )
         self.async_update_listeners()
         self.async_schedule_refresh(resource_id)
 
