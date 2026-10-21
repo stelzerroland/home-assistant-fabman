@@ -3,12 +3,12 @@
 Monitor and control Fabman resources from Home Assistant. Supported resources have
 a bridge and a `controlType` of `machine` or `door`.
 
-The latest published stable release is **v0.1.1**. The latest published beta is
-**v0.2.0b6**. The behavior below describes this beta, including the new optional
-member-assignment action introduced for a controlled live pilot.
+The current stable release is **v0.2.0**, incorporating the changes from betas
+b1–b6, including activity/connectivity entities, resource synchronization and
+optional usage member assignment.
 Compare states with your existing installation before migrating automations.
-The integration is under active development; the beta is not yet validated for
-general production use. Testing and feedback are welcome.
+The integration remains under active development. Tested behavior and remaining
+limitations are documented below; testing and feedback are welcome.
 
 Initial integration setup is available entirely through the Home Assistant UI;
 no YAML configuration is required. YAML examples below are optional action examples.
@@ -66,24 +66,25 @@ The API token determines whose permissions are used for remote commands and whos
 member account initially owns the resulting usage. Use an account with the
 necessary Fabman permissions. Keep the token secret.
 
-To install the beta, open Fabman in HACS, choose **Redownload**, then **Need a
-different version?**, and select **v0.2.0b6**. Enable beta/prerelease versions if
-required by your HACS version. Read the [b6 release notes](docs/releases/v0.2.0b6.md).
+To update, open Fabman in HACS and install **v0.2.0**. If you previously selected
+a beta manually, choose **Redownload → Need a different version? → v0.2.0**.
+Beta/prerelease versions do not need to be enabled for this stable release.
+Read the [v0.2.0 release notes](docs/releases/v0.2.0.md) before updating from v0.1.1.
 Restart HA after updating the integration's Python code; reloading its entry alone
-does not load the new code. To return to stable, select v0.1.1 and restart again.
-Beta upgrades preserve the existing configuration and entity identities. However,
-legacy status sensors also adopt the beta's unknown/unavailable semantics, so
+does not load the new code. Updates preserve existing configuration and entity
+identities. However, legacy status sensors also adopt the new unknown/unavailable
+semantics when upgrading from v0.1.1, so
 check automations that depend on their previous behavior before updating.
-Stable does not include the beta's native activity/connectivity sensors and
-lifecycle behavior.
+For a rollback, select v0.1.1 and restart again; that version lacks the native
+activity/connectivity sensors, resource lifecycle handling and member action.
 
 ### Manual installation
 
 Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart HA,
-then add the integration as described above. Install v0.2.0b6 or later to test the
-optional member-assignment action; earlier releases do not contain it.
+then add the integration as described above. Install v0.2.0 for all features
+documented here.
 
-## Optional member assignment (beta)
+## Optional member assignment
 
 The additional **Fabman: Turn on** action (`fabman.turn_on`) can assign the
 resulting usage to a different Fabman member. Existing switch controls keep their
@@ -213,7 +214,7 @@ do not require separate polling requests.
 Further Fabman API support and extended equipment information remain possible
 future work. Power measurements or additional equipment logs are not currently
 provided as entities. Resource synchronization, previously listed as planned,
-is implemented in the beta as described above.
+is implemented in v0.2.0 as described above.
 
 ## Development
 

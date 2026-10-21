@@ -1,3 +1,16 @@
+# v0.2.0
+
+- Publish the cumulative b1–b6 changes as a stable release, including native Activity
+  and Connectivity binary sensors, resource lifecycle synchronization and timed door releases.
+- Add optional usage attribution through `fabman.turn_on` with a member ID or email.
+- Preserve existing entity identities and API-member defaults; uncertain observations
+  use unknown/unavailable rather than an invented off state.
+- Update main and README with installation, migration and action documentation.
+- Validate with 239 tests on each of Home Assistant 2026.10.1 and 2026.10.2.
+- Member reassignment retains the documented correlation and live-validation limits.
+
+See [release notes and upgrade instructions](docs/releases/v0.2.0.md).
+
 # v0.2.0b6 (beta)
 
 - Add `fabman.turn_on` with an optional member ID or exact email address for usage attribution.
