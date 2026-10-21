@@ -26,6 +26,20 @@ from custom_components.fabman.api import FabmanAPIError
 from .factories import machine
 
 
+async def test_member_action_routes_to_fabman_switch(runtime, coordinator, hass):
+    coordinator.async_set_updated_data({1: machine()})
+    await runtime.setup()
+    entity = runtime.entities()["fabman_switch_1"]
+    with patch.object(entity, "async_turn_on_for_member", new=AsyncMock()) as turn_on:
+        await hass.services.async_call(
+            "fabman",
+            "turn_on",
+            {"entity_id": entity.entity_id, "email_address": "member@example.com"},
+            blocking=True,
+        )
+        turn_on.assert_awaited_once_with(email_address="member@example.com")
+
+
 @pytest.fixture
 async def runtime(hass, coordinator):
     dr.async_setup(hass)

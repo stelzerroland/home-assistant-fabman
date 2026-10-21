@@ -1,6 +1,8 @@
 """Coordinate Fabman polling and delayed state updates."""
 
 import logging
+from collections import defaultdict
+from asyncio import Lock
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -52,6 +54,8 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self._revision = 0
         self._retry_not_before = 0
         self.pending_commands = {}
+        self.command_locks = defaultdict(Lock)
+        self._assigned_door_grants = {}
         self.last_successful_fetch = None
         self.resource_count = 0
         self.invalid_resource_count = 0
@@ -116,7 +120,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         )
         for resource_id, command in list(self.pending_commands.items()):
             resource = new_data.get(resource_id)
-            observed = evaluate_activity(resource)
+            observed = evaluate_activity(self._activity_resource(resource_id, resource))
             matches = resource is not None and observed.is_on is command.is_on
             if (
                 resource is not None
@@ -158,7 +162,33 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             return Activity(None, "resource_inactive_or_missing", "fabman_resource")
         if resource_id in self.pending_commands:
             return Activity(None, "command_unconfirmed", "bridge_command")
-        return evaluate_activity((self.data or {}).get(resource_id))
+        return evaluate_activity(self._activity_resource(resource_id, resource))
+
+    def _activity_resource(self, resource_id, resource):
+        """Do not treat our log edit timestamp as another door release."""
+        grant = self._assigned_door_grants.get(resource_id)
+        if grant is None or not isinstance(resource, dict):
+            return resource
+        usage = resource.get("lastUsed")
+        if (
+            resource.get("controlType") != "door"
+            or not isinstance(usage, dict)
+            or usage.get("id") != grant[0]
+        ):
+            return resource
+        return {**resource, "lastUsed": {**usage, "at": grant[1]}}
+
+    def async_note_assigned_door_grant(self, resource_id, log):
+        """Retain the verified original grant time before changing its member."""
+        if (
+            self._unloaded
+            or self.data.get(resource_id, {}).get("controlType") != "door"
+        ):
+            return
+        self._assigned_door_grants[resource_id] = (log["id"], log["createdAt"])
+        self._revision += 1
+        self._schedule_door_updates(self.data)
+        self.async_update_listeners()
 
     def async_set_updated_data(self, data):
         """Invalidate in-flight reads if newer confirmed data is supplied."""
@@ -182,7 +212,9 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
                 or bridge_is_connected(resource) is not True
             ):
                 continue
-            close_time = get_door_close_time(resource)
+            close_time = get_door_close_time(
+                self._activity_resource(resource_id, resource)
+            )
             if close_time is None:
                 continue
             delay = (close_time - dt_util.utcnow()).total_seconds()
@@ -248,6 +280,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         """Cancel callbacks when this entry is unloaded or setup fails."""
         self._unloaded = True
         self.pending_commands.clear()
+        self._assigned_door_grants.clear()
         for timers in (self._door_timers, self._refresh_timers):
             for timer in timers.values():
                 timer.cancel()

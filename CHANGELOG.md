@@ -1,3 +1,15 @@
+# v0.2.0b6 (beta)
+
+- Add `fabman.turn_on` with an optional member ID or exact email address for usage attribution.
+- Keep the API-key member as the default; reject both selectors or invalid members before activation.
+- Correlate confirmed commands to one new usage and reassign with optimistic locking.
+- Serialize local resource commands and report partial failures without repeating activation.
+- Refresh README for current entities, discovery, lifecycle, webhooks and beta installation.
+- Live reassignment and subsequent hardware updates remain to be validated in a controlled pilot.
+- Validate with 239 tests on each of HA 2026.10.1 and 2026.10.2.
+
+See [details and HACS update instructions](docs/releases/v0.2.0b6.md).
+
 # v0.2.0b5 (beta)
 
 - Fix assumed door switches staying on when a short release ends before reconciliation.

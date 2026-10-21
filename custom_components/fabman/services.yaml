@@ -1,0 +1,28 @@
+turn_on:
+  name: Turn on
+  description: >-
+    Turn on a Fabman resource. Optionally reassign the resulting usage to a member.
+    Activation uses the API account's permissions, not the selected member's permissions.
+    Specify either a member ID or an email address, or leave both empty.
+  target:
+    entity:
+      integration: fabman
+      domain: switch
+  fields:
+    member_id:
+      name: Member ID
+      description: Numeric Fabman member ID. Cannot be combined with email address.
+      example: 12345
+      selector:
+        number:
+          min: 1
+          max: 2147483647
+          mode: box
+          step: 1
+    email_address:
+      name: Email address
+      description: Exact Fabman member email address. Cannot be combined with member ID.
+      example: member@example.com
+      selector:
+        text:
+          type: email

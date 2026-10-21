@@ -1,134 +1,236 @@
-# Home Assistant Fabman Integration (⚠️ Alpha Version)
+# Fabman integration for Home Assistant
 
-⚠️ **This integration is in an early development stage!**  
-🚧 **NOT ready for production use – testing & feedback welcome!**  
+Monitor and control Fabman resources from Home Assistant. Supported resources have
+a bridge and a `controlType` of `machine` or `door`.
 
-This **custom integration** for **Home Assistant** allows you to display and control machines from **Fabman** as Home Assistant devices.  
-Status updates can be received either via **polling** (default) or optionally via **Webhooks** for real-time updates.  
+The latest published stable release is **v0.1.1**. The latest published beta is
+**v0.2.0b6**. The behavior below describes this beta, including the new optional
+member-assignment action introduced for a controlled live pilot.
+Compare states with your existing installation before migrating automations.
+The integration is under active development; the beta is not yet validated for
+general production use. Testing and feedback are welcome.
 
-## 🚀 Features (Current State)
+Initial integration setup is available entirely through the Home Assistant UI;
+no YAML configuration is required. YAML examples below are optional action examples.
 
-The `v0.2.0b5` prerelease adds native `binary_sensor` activity entities alongside
-the existing sensors and switches. Unknown or inconsistent usage is reported as
-`unknown`, and failed reads or missing resources as `unavailable`. A pending switch
-command is an explicitly assumed switch state and does not count as observed
-activity. Door release stays on for `maxOfflineUsage` seconds after a reported
-successful grant, then turns off locally without a server off event. This is no
-physical door contact. Never-used/null semantics await verification.
-See the [activity contract and migration limitations](docs/activity-contract.md)
-before preparing a passive pilot. A targeted live door release check passed;
-broader production comparison remains necessary.
-Beta 2 fixes false unknown states for completed machine usage: `lastUsed.at`
-can reflect a log update after `stoppedAt` and must not be treated as usage start.
-The correction was checked against read-only API data; no hardware was switched.
-Beta 3 adds a **Connectivity** binary sensor to each supported device, using
-Fabman's explicit `bridge.offline` flag. Offline or unknown connectivity makes
-Activity unknown; API failures make both sensors unavailable. Existing text
-status sensors follow the same activity rule. Both sensors share polling/webhooks
-and require no additional API calls.
-Beta 4 discovers new supported resources automatically after successful refreshes.
-Known archived/deleted resources remain unavailable and can be removed locally
-from HA after a trustworthy inventory check. Reactivation retains identities
-unless manually cleaned up. Source renames preserve HA overrides and entity IDs.
-Beta 5 clears an assumed door-on command when a new successful release is
-already expired by the time reconciliation reads it. Old grants do not confirm
-new opens; the usage baseline is captured before posting the command.
+## Devices and entities
 
-To test the beta, open Fabman in HACS, choose **Redownload**, select
-**Need a different version?**, and choose `v0.2.0b5`. Enable prerelease/beta versions
-if your HACS version requires it. Restart Home Assistant after downloading.
-Existing configuration and entity identities are preserved. This beta changes
-existing status sensors too: uncertain usage becomes `unknown`, and accepted
-commands are assumed switch states until confirmed. See the
-[beta release notes](docs/releases/v0.2.0b5.md) before updating. To return to the
-stable version, select `v0.1.1` in HACS and restart Home Assistant again.
+Each supported resource has one device with these entities:
 
-✅ **Automatic discovery** of all Fabman resources via API  
-✅ **Status monitoring** of machines as **sensors** (on/off)  
-✅ **Control machines** with a Fabman Bridge via **switch entities**  
-✅ **HACS support** (easy installation & updates)  
-✅ **Fully configurable via the Home Assistant UI** (no YAML required)  
-✅ **Optional Webhook support for real-time updates**  
+| Entity | Meaning |
+| --- | --- |
+| Switch named after the resource | Sends remote on/off commands using the configured API key |
+| Activity binary sensor | Confirmed usage: `on`, `off`, or `unknown` |
+| Connectivity binary sensor | Connected/disconnected according to Fabman's explicit `bridge.offline` flag |
+| Legacy text Status sensor | The same activity interpretation as text `on`/`off`; retained for existing installations |
 
-⚠️ **Known Limitations:**  
-❌ **Webhook setup requires an externally accessible Home Assistant instance** (see setup details below).  
-❌ **Only Bridge Types "machine" and "door" are supported**
-❌ **Currently, only basic Fabman API functions are used** – future enhancements planned.  
-❌ **Limited testing** – expect potential bugs & issues!  
+An accepted switch command initially produces an **assumed** switch state. It
+does not establish that the resource is actually running. API observations confirm
+the state. Ambiguous or invalid usage and offline/unknown bridge connectivity
+make activity unknown. Failed API reads make the entities unavailable.
 
-## 🔧 Installation via HACS
-1️⃣ **Ensure HACS is installed in Home Assistant**  
-2️⃣ **Add this repository to HACS**:
-   - Open **HACS → Integrations**  
-   - Click on the three-dot menu → **Custom repositories**  
-   - Enter the following repository:
-     ```
-     https://github.com/stelzerroland/home-assistant-fabman
-     ```
-   - Choose **Integration** as the category
+For doors, Activity represents an allowed **release interval**, not a physical
+door contact. It remains on for `maxOfflineUsage` seconds after the reported grant
+and then turns off locally, including when Fabman sends no later off event.
+See the [activity contract](docs/activity-contract.md) for exact semantics and
+migration limitations, including never-used resources.
 
-3️⃣ **Install the integration & restart Home Assistant**  
-4️⃣ **Go to Settings → Devices & Services → Add Integration**  
-5️⃣ Search for `"Fabman"` and enter your **API URL** & **API Token**  
+## Resource synchronization
 
-## 🔧 Manual Installation (Without HACS)
-1️⃣ **Copy the files** to: /config/custom_components/fabman/
+Successful complete API refreshes discover new supported active/locked resources
+without restarting HA. Known archived, deleted or missing resources remain in HA
+as unavailable; their entity identities are retained rather than automatically
+deleted. You can remove such devices manually from HA after a successful complete
+inventory read. This only removes the HA device, not the resource in Fabman.
 
-2️⃣ **Restart Home Assistant**  
-3️⃣ **Go to Settings → Devices & Services → Add Integration**  
-4️⃣ Search for `"Fabman"` and enter your credentials  
+Reactivated resources retain their identities unless manually removed. Fabman
+renames update default names while preserving HA name overrides and entity IDs.
+Resources without a supported bridge do not create new devices.
 
-## ⚡ Optional: Webhook Support for Real-Time Updates
-Instead of relying on periodic polling, Fabman Webhooks can be configured for real-time status updates. To use this feature, your Home Assistant instance **must be accessible via HTTPS from the internet**.
+## Installation and updates
 
-### 🔧 Prerequisites
-- Your Home Assistant server must be reachable externally via **HTTPS**.
-- This can be achieved using:
-  - **Port forwarding on your router** and services like **DuckDNS** if you don’t have a static IP address.  
-    👉 For setup guidance, refer to resources like [this DuckDNS tutorial](https://www.youtube.com/watch?v=AK5E2T5tWyM).
-  - **Alternative without port forwarding:** You can use **Cloudflare Tunnel** to expose Home Assistant securely over HTTPS without opening ports on your router.  
-    👉 Learn how to set it up with this **Cloudflare Tunnel tutorial**: [YouTube: Secure Home Assistant with Cloudflare](https://www.youtube.com/watch?v=JGAKzzOmvxg).
+### HACS
 
-### Webhook Setup in Fabman
-1️⃣ Log in to your Fabman admin panel.  
-2️⃣ Navigate to **"Configure" → "Integrations (API & Webhooks)"**.  
-3️⃣ Click **"Add Webhook"**.  
-4️⃣ Configure the webhook as follows:
-   - **URL:** `https://<your-server>.duckdns.org:8123/api/webhook/fabman_webhook`  
-   - **Event Type:** `Activity Log`
+HACS must already be installed. Open its **Custom repositories** dialog from the
+three-dot menu to add this repository.
 
-5️⃣ Save the webhook settings.  
+1. Add `https://github.com/stelzerroland/home-assistant-fabman` as a custom
+   repository with category **Integration** in HACS.
+2. Download the integration and restart Home Assistant.
+3. Open **Settings → Devices & services → Add integration → Fabman**.
+4. Enter the API token and the API URL for your Fabman deployment.
+5. Keep periodic synchronization enabled unless you have a working webhook setup.
+   The default interval is **30 seconds**; configuration accepts 10–3600 seconds.
 
-The existing `/api/webhook/fabman_webhook` URL remains supported and refreshes
-all configured Fabman connections. For multiple connections, use a separate URL
-for each one: `/api/webhook/fabman_webhook_<entry_id>`. To find the entry ID,
-evaluate `{{ config_entry_id('switch.your_fabman_resource') }}` under
-**Developer Tools → Template**, replacing the entity ID with one of that
-connection's switches. See the [Home Assistant template reference](https://www.home-assistant.io/template-functions/config_entry_id/).
-Entry-specific webhooks refresh only their own connection. Resource states and
-door timeout settings are always read from the Fabman API.
+The API token determines whose permissions are used for remote commands and whose
+member account initially owns the resulting usage. Use an account with the
+necessary Fabman permissions. Keep the token secret.
 
-## 🔮 Planned Features (Future Development)
-🟢 **Automatic synchronization of new/removed Fabman resources**  
-🟢 **Extended machine information (power usage, sensors, logs)**  
-🟢 **Support for more Fabman API features**  
+To install the beta, open Fabman in HACS, choose **Redownload**, then **Need a
+different version?**, and select **v0.2.0b6**. Enable beta/prerelease versions if
+required by your HACS version. Read the [b6 release notes](docs/releases/v0.2.0b6.md).
+Restart HA after updating the integration's Python code; reloading its entry alone
+does not load the new code. To return to stable, select v0.1.1 and restart again.
+Beta upgrades preserve the existing configuration and entity identities. However,
+legacy status sensors also adopt the beta's unknown/unavailable semantics, so
+check automations that depend on their previous behavior before updating.
+Stable does not include the beta's native activity/connectivity sensors and
+lifecycle behavior.
 
-## 🛠 Feedback & Development
+### Manual installation
 
-Regression tests use Python 3.14 and Home Assistant 2026.10.2:
+Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart HA,
+then add the integration as described above. Install v0.2.0b6 or later to test the
+optional member-assignment action; earlier releases do not contain it.
+
+## Optional member assignment (beta)
+
+The additional **Fabman: Turn on** action (`fabman.turn_on`) can assign the
+resulting usage to a different Fabman member. Existing switch controls keep their
+behavior. No extra entity, global default or HA-user mapping is introduced.
+
+Use it in **Developer tools → Actions**, a script, an automation or a dashboard
+button. Select a Fabman switch and provide **either** `member_id` **or**
+`email_address`. The entity IDs below are examples; choose your actual switch.
+
+```yaml
+action: fabman.turn_on
+target:
+  entity_id: switch.eingang_office_og
+data:
+  email_address: member@example.com
+```
+
+Alternatively:
+
+```yaml
+action: fabman.turn_on
+target:
+  entity_id: switch.laser_thunder_nova_63
+data:
+  member_id: 12345
+```
+
+Omit both fields to use the API-key member as usual. Supplying both is rejected
+before activation. Member IDs must be positive integers. An email search must
+return exactly one result with the exact email address, ignoring case. A missing,
+ambiguous or cross-account member aborts before activation; there is no silent
+fallback to the API member. If a text search is ambiguous, use the numeric ID.
+
+The integration validates the member and reads a fresh usage baseline, sends one
+remote activation, waits up to 30 seconds for its confirmed execution and assigns
+the matching new log entry using `PUT /resource-logs/{id}` with the current
+`lockVersion`. It does not change an already-running machine session. It serializes
+activation commands for the same resource within one integration entry. Explicit
+off commands remain immediate and do not wait for assignment to finish.
+
+Fabman does not document a direct usage ID in the activation response. Matching
+therefore requires exactly one allowed usage in the command's creation-to-completion
+time window, on the same account/resource, initially belonging to the command's
+member and different from the baseline. Missing or multiple matches are rejected.
+This is correlation rather than an atomic server-side transaction; external
+simultaneous controls cannot be locked by HA. Do not use this as a guaranteed
+attribution mechanism for concurrent external controls.
+
+If activation has already been accepted but assignment fails, the action raises a
+clear HA error. The resource may already be on, and the usage may still belong to
+the API member. Inspect the activity log; do not repeat activation merely to retry
+assignment. The integration does not retry activation, automatically switch off,
+or overwrite an assignment conflict. A restart during the operation can also
+leave attribution incomplete; pending assignments are not persisted.
+
+**Activation uses the configured API account's permissions.** Reassigning a log
+does not check the selected member's training, access rights or presence. It can
+affect that member's charges, packages and discounts. Normal HA entity-control
+permissions apply to the action. There is no automatic mapping from the HA caller
+to a Fabman member.
+
+Switch off through `switch.turn_off` as usual. For an assigned door usage, HA keeps
+the verified original log creation time in memory so changing the member does not
+extend the release through a changed log-update timestamp. This anchor is not
+persisted across reloads/restarts; after a restart, the normal API-based activity
+rules apply. Local HTTP tests cover assignment for machine and door logs; reassignment
+of live hardware sessions, subsequent bridge updates and the bridge's displayed
+member still require a controlled pilot before relying on the feature.
+
+References: [Fabman API schema](https://fabman.io/api/v1/swagger.json),
+[reassigning activity and related charges](https://help.fabman.io/article/39-reassign-activity).
+
+## Optional webhooks
+
+Polling works without inbound access to HA. Webhooks require an HTTPS endpoint
+that the Fabman server can reach from the internet. Possible setups include
+port forwarding with dynamic DNS (for example DuckDNS), or a tunnel such as
+Cloudflare Tunnel without inbound port forwarding. These are external networking
+options, not features configured by this integration.
+
+The previous README included these community setup videos, retained as optional
+background material: [DuckDNS tutorial](https://www.youtube.com/watch?v=AK5E2T5tWyM)
+and [Cloudflare Tunnel tutorial](https://www.youtube.com/watch?v=JGAKzzOmvxg).
+They have not been revalidated against current software versions.
+
+In Fabman:
+
+1. Sign in to the admin interface.
+2. Open **Configure → Integrations (API & Webhooks)**.
+3. Choose **Add Webhook**.
+4. Set the event type to **Activity Log** and enter the URL below.
+5. Save the webhook settings.
+
+```text
+https://<your-ha-host>/api/webhook/fabman_webhook
+```
+
+This legacy URL refreshes all configured Fabman connections. For one connection,
+use `/api/webhook/fabman_webhook_<entry_id>`. Find its entry ID in
+**Developer tools → Template**:
+
+```jinja
+{{ config_entry_id('switch.your_fabman_resource') }}
+```
+
+Replace the example entity ID with a switch belonging to that connection. See the
+[HA template reference](https://www.home-assistant.io/template-functions/config_entry_id/).
+An entry-specific webhook refreshes only its own connection. Resource state and
+door timeout settings are always read from Fabman, not supplied by the webhook.
+
+Webhook payloads trigger an authoritative API refresh; they do not directly replace
+resource state. Webhooks are not an independent state source and do not eliminate
+API calls. Keep polling enabled as a reconciliation mechanism, especially for
+inventory changes that may not emit an Activity Log event. In webhook-only mode,
+inventory discovery requires a webhook or another successful refresh.
+
+## Release history and future development
+
+The [changelog](CHANGELOG.md) and [individual beta release notes](docs/releases)
+retain the detailed history: corrected completed-usage timestamps (b2),
+Connectivity (b3), resource lifecycle synchronization (b4), and confirmation of
+short door releases that have already expired when read (b5). A targeted live
+door release check passed for b5; broader production comparison remains necessary.
+Activity and Connectivity share the existing polling/webhook resource reads and
+do not require separate polling requests.
+
+Further Fabman API support and extended equipment information remain possible
+future work. Power measurements or additional equipment logs are not currently
+provided as entities. Resource synchronization, previously listed as planned,
+is implemented in the beta as described above.
+
+## Development
+
+Regression tests run against Home Assistant **2026.10.1 and 2026.10.2**, on Python
+3.14. These are the tested versions, not a claim of compatibility with every HA
+release.
 
 ```sh
 python -m venv .venv
-# Activate .venv in your shell, then:
+# Activate the environment in your shell, then:
 python -m pip install -r requirements-test.txt
 python -m pytest
+python -m ruff check --isolated --select E4,E7,E9,F custom_components tests
 ```
 
-❗ **This integration is under active development & not stable yet!**  
-💡 **Bug reports & feature requests are welcome!**  
-📩 If you want to contribute, please open a **GitHub Issue** or a **Pull Request**.  
+See [CHANGELOG.md](CHANGELOG.md) and [release notes](docs/releases) for previous
+changes. Report bugs or propose improvements through this repository's issues
+and pull requests. Avoid including API tokens or personal member data in reports.
 
----
-
-**Made with ❤️ for Makerspaces!** 🚀
-
+Made with ❤️ for Makerspaces!
