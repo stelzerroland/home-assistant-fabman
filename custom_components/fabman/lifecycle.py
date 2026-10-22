@@ -15,7 +15,13 @@ def resource_is_current(resource):
 
 
 def async_setup_discovery(
-    hass, entry, coordinator, domain, factories, async_add_entities
+    hass,
+    entry,
+    coordinator,
+    domain,
+    factories,
+    async_add_entities,
+    resource_filter=None,
 ):
     """Add each entity once; keep inactive registry entries for later reactivation."""
     from .helpers import is_supported_resource
@@ -43,6 +49,8 @@ def async_setup_discovery(
         added = []
         for resource_id, resource in (coordinator.data or {}).items():
             if not is_supported_resource(resource):
+                continue
+            if resource_filter is not None and not resource_filter(resource):
                 continue
             for factory in factories:
                 key = (resource_id, factory)

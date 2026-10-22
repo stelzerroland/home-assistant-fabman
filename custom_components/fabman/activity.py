@@ -41,7 +41,10 @@ def _timestamp(value, now):
 def door_release_deadline(resource, *, now: datetime | None = None):
     """Derive the release deadline from a reported grant, never from polling time."""
     now = now or dt_util.utcnow()
-    if not isinstance(resource, dict) or resource.get("controlType") != "door":
+    if not isinstance(resource, dict) or resource.get("controlType") not in (
+        "door",
+        "nuki",
+    ):
         return None
     usage = resource.get("lastUsed")
     if not isinstance(usage, dict):
@@ -65,7 +68,7 @@ def evaluate_activity(resource, *, now: datetime | None = None) -> Activity:
     if not isinstance(resource, dict):
         return Activity(None, "invalid_resource")
     control_type = resource.get("controlType")
-    if control_type not in ("machine", "door"):
+    if control_type not in ("machine", "door", "nuki"):
         return Activity(None, "unsupported_resource_type")
     embedded = resource.get("_embedded")
     if not isinstance(embedded, dict) or not isinstance(embedded.get("bridge"), dict):
@@ -87,12 +90,21 @@ def evaluate_activity(resource, *, now: datetime | None = None) -> Activity:
         return Activity(None, "null_usage_unverified")
     if not isinstance(usage, dict) or not usage:
         return Activity(None, "invalid_usage")
-    if control_type == "door":
+    if control_type in ("door", "nuki"):
         deadline = door_release_deadline(resource, now=now)
         if deadline is None:
-            return Activity(None, "invalid_door_release_window", "door_release_timer")
+            source = (
+                "nuki_access_timer" if control_type == "nuki" else "door_release_timer"
+            )
+            return Activity(None, "invalid_door_release_window", source)
         # Door usage can already be closed server-side while its output is active.
         active = now < deadline
+        if control_type == "nuki":
+            return Activity(
+                active,
+                "nuki_access_active" if active else "nuki_access_expired",
+                "nuki_access_timer",
+            )
         return Activity(
             active,
             "door_release_active" if active else "door_release_expired",

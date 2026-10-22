@@ -9,6 +9,7 @@ from .connectivity import bridge_is_connected
 from .const import DOMAIN
 from .entity import FabmanEntity
 from .lifecycle import async_setup_discovery
+from .nuki import is_unlocked
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -18,15 +19,33 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         config_entry,
         coordinator,
         "binary_sensor",
-        (
-            lambda resource_id, resource: FabmanActivitySensor(
-                coordinator, resource_id, config_entry.entry_id
-            ),
-            lambda resource_id, resource: FabmanConnectivitySensor(
-                coordinator, resource_id, config_entry.entry_id
-            ),
-        ),
+        (lambda resource_id, resource: FabmanActivitySensor(
+            coordinator, resource_id, config_entry.entry_id
+        ),),
         async_add_entities,
+        resource_filter=lambda resource: resource.get("controlType")
+        in ("machine", "door", "nuki"),
+    )
+    async_setup_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        "binary_sensor",
+        (lambda resource_id, resource: FabmanConnectivitySensor(
+            coordinator, resource_id, config_entry.entry_id
+        ),),
+        async_add_entities,
+    )
+    async_setup_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        "binary_sensor",
+        (lambda resource_id, resource: FabmanNukiLockSensor(
+            coordinator, resource_id, config_entry.entry_id
+        ),),
+        async_add_entities,
+        resource_filter=lambda resource: resource.get("controlType") == "nuki",
     )
 
 
@@ -91,4 +110,48 @@ class FabmanConnectivitySensor(FabmanEntity, BinarySensorEntity):
                 if connected
                 else "bridge_offline"
             ),
+        }
+
+
+class FabmanNukiLockSensor(FabmanEntity, BinarySensorEntity):
+    """Expose the Nuki lock state separately from Fabman's access pulse."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Lock"
+    _attr_device_class = BinarySensorDeviceClass.LOCK
+
+    def __init__(self, coordinator, resource_id, entry_id):
+        super().__init__(coordinator, resource_id)
+        self._attr_unique_id = f"fabman_nuki_lock_{entry_id}_{resource_id}"
+
+    @property
+    def available(self):
+        return super().available and self.coordinator.nuki_space_available(
+            self.resource
+        )
+
+    @property
+    def is_on(self):
+        return is_unlocked(self.coordinator.nuki_device(self.resource))
+
+    @property
+    def extra_state_attributes(self):
+        device = self.coordinator.nuki_device(self.resource)
+        state = device.get("state") if isinstance(device, dict) else None
+        nuki_state = state.get("state") if isinstance(state, dict) else None
+        server_state = device.get("serverState") if isinstance(device, dict) else None
+        reason = (
+            "nuki_offline"
+            if type(server_state) is int and server_state != 0
+            else "nuki_state_unknown"
+            if self.is_on is None
+            else "nuki_unlocked"
+            if self.is_on
+            else "nuki_locked"
+        )
+        return {
+            "resource_id": self._resource_id,
+            "nuki_state": nuki_state,
+            "status_source": "fabman_nuki",
+            "status_reason": reason,
         }

@@ -14,13 +14,18 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import EntityPlatform
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from custom_components.fabman import (
     async_remove_config_entry_device,
     binary_sensor,
+    event,
     sensor,
     switch,
 )
+from custom_components.fabman.binary_sensor import FabmanNukiLockSensor
+from custom_components.fabman.event import FabmanPOSEvent
+from custom_components.fabman.sensor import FabmanNukiBatterySensor
 from custom_components.fabman.api import FabmanAPIError
 
 from .factories import machine
@@ -74,6 +79,7 @@ async def runtime(hass, coordinator):
             ("binary_sensor", binary_sensor),
             ("sensor", sensor),
             ("switch", switch),
+            ("event", event),
         ):
             platform = EntityPlatform(
                 hass=hass,
@@ -427,3 +433,85 @@ async def test_expired_door_acknowledgement_publishes_off_in_ha(
     assert not hass.states.get(door_switch.entity_id).attributes.get(
         "assumed_state", False
     )
+
+
+async def test_pos_is_read_only_and_emits_safe_authorization_events(
+    runtime, coordinator, hass
+):
+    pos = {**machine(1515), "controlType": "pos"}
+    coordinator.async_set_updated_data({1515: pos})
+    await runtime.setup()
+
+    entities = runtime.entities()
+    assert len(entities) == 2
+    assert {entity.platform.domain for entity in entities.values()} == {
+        "binary_sensor",
+        "event",
+    }
+    authorization = next(
+        entity for entity in entities.values() if isinstance(entity, FabmanPOSEvent)
+    )
+    coordinator._dispatch_pos_event(
+        {
+            "id": 812,
+            "resource": 1515,
+            "type": "allowed",
+            "createdAt": "2026-10-22T10:00:00+00:00",
+            "member": {"emailAddress": "private@example.com"},
+        }
+    )
+    await runtime.flush()
+
+    state = hass.states.get(authorization.entity_id)
+    assert state.state is not None
+    assert state.attributes["event_type"] == "authorized"
+    assert state.attributes["log_id"] == 812
+    assert "member" not in state.attributes
+    assert "private@example.com" not in str(state.attributes)
+
+
+async def test_nuki_entities_separate_access_from_lock_and_battery_state(
+    runtime, coordinator, hass
+):
+    nuki = {
+        **machine(1523),
+        "controlType": "nuki",
+        "space": 5,
+        "nukiDeviceId": 88,
+        "maxOfflineUsage": 60,
+        "lastUsed": {"at": dt_util.utcnow().isoformat()},
+    }
+    device = {
+        "smartlockId": 88,
+        "serverState": 0,
+        "state": {"mode": 2, "state": 1, "batteryCharge": 80},
+    }
+    coordinator.async_set_updated_data({1523: nuki})
+    coordinator._nuki_devices_by_space = {"5": {"88": device}}
+    await runtime.setup()
+
+    entities = runtime.entities()
+    lock_sensor = next(
+        entity for entity in entities.values() if isinstance(entity, FabmanNukiLockSensor)
+    )
+    battery = next(
+        entity for entity in entities.values() if isinstance(entity, FabmanNukiBatterySensor)
+    )
+    activity = next(
+        entity
+        for entity in entities.values()
+        if isinstance(entity, binary_sensor.FabmanActivitySensor)
+    )
+    assert len(entities) == 6
+    assert lock_sensor.is_on is False
+    assert battery.native_value == 80
+    assert hass.states.get(activity.entity_id).state == "on"
+
+    coordinator._nuki_devices_by_space["5"]["88"] = {
+        **device,
+        "serverState": 1,
+    }
+    await runtime.flush()
+    assert lock_sensor.is_on is None
+    assert battery.native_value is None
+    assert lock_sensor.extra_state_attributes["status_reason"] == "nuki_offline"

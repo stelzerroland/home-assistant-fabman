@@ -1,11 +1,13 @@
 # Fabman integration for Home Assistant
 
-Monitor and control Fabman resources from Home Assistant. Supported resources have
-a bridge and a `controlType` of `machine` or `door`.
+Monitor and control Fabman resources from Home Assistant. `machine`, `door` and
+`nuki` resources with a bridge have controls and activity sensors. `pos` resources
+are read-only and report successful authorization events.
 
 The current stable release is **v0.2.0**, incorporating the changes from betas
 b1–b6, including activity/connectivity entities, resource synchronization and
-optional usage member assignment.
+optional usage member assignment. The **v0.3.0b1 beta** adds read-only POS events
+and Nuki access, lock-state and battery entities for live testing.
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
 limitations are documented below; testing and feedback are welcome.
@@ -19,10 +21,31 @@ Each supported resource has one device with these entities:
 
 | Entity | Meaning |
 | --- | --- |
-| Switch named after the resource | Sends remote on/off commands using the configured API key |
-| Activity binary sensor | Confirmed usage: `on`, `off`, or `unknown` |
-| Connectivity binary sensor | Connected/disconnected according to Fabman's explicit `bridge.offline` flag |
-| Legacy text Status sensor | The same activity interpretation as text `on`/`off`; retained for existing installations |
+| Switch named after the resource | For machine, door and Nuki: sends Fabman bridge on/off commands using the configured API key |
+| Activity binary sensor | Machine usage or the timed door/Nuki access interval: `on`, `off`, or `unknown` |
+| Connectivity binary sensor | Fabman bridge connectivity from its explicit `bridge.offline` flag |
+| Legacy text Status sensor | Activity as text `on`/`off`; retained for existing installations |
+| Nuki Lock binary sensor | Current lock state reported by Fabman (`on` means unlocked); transitions and unknown states stay unknown |
+| Nuki Battery sensor | Battery percentage reported by Fabman |
+| POS Authorization event | A successful (`allowed`) POS authorization from Fabman's resource log |
+
+POS resources have no switch or activity state in this integration. Fabman POS
+bridges perform authorization checks and do not switch equipment on/off like a
+normal bridge. The event entity reports successful authorizations only; it does
+not represent the physical POS terminal's power or a running session. Its
+Connectivity sensor reports the Fabman bridge, not the POS terminal. Historical
+POS authorizations are not replayed when the integration is first set up. New
+events are collected during the configured polling refresh or a webhook-triggered
+refresh.
+
+For Nuki, **Activity** is the Fabman access pulse and turns off locally after
+`maxOfflineUsage`, while the **Lock** binary sensor is the separate lock state
+(`on` means unlocked, following Home Assistant's lock device class). The switch's
+`turn_on` uses the action configured for that resource in Fabman; it is not a
+general-purpose Home Assistant lock/unlock control. Nuki status and battery come
+from Fabman's synchronized Nuki data. The `Connectivity` sensor still describes
+the Fabman bridge. Nuki Opener or Box state codes are not treated as lock states;
+their **Lock** entity remains unknown.
 
 An accepted switch command initially produces an **assumed** switch state. It
 does not establish that the resource is actually running. API observations confirm
@@ -78,11 +101,18 @@ check automations that depend on their previous behavior before updating.
 For a rollback, select v0.1.1 and restart again; that version lacks the native
 activity/connectivity sensors, resource lifecycle handling and member action.
 
+To try the **v0.3.0b1 beta**, open Fabman in HACS, choose **⋮ → Redownload**,
+enable **Show beta versions**, select **v0.3.0b1**, download it and restart Home
+Assistant. To return to stable, repeat these steps with beta versions disabled and
+select **v0.2.0**. Review the [beta release notes](docs/releases/v0.3.0b1.md)
+before testing; POS authorizations are events rather than on/off state, and Nuki
+commands and telemetry have not yet been validated against Happylab hardware.
+
 ### Manual installation
 
 Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart HA,
-then add the integration as described above. Install v0.2.0 for all features
-documented here.
+then add the integration as described above. Install v0.2.0 for stable features
+or v0.3.0b1 to test POS and Nuki support.
 
 ## Optional member assignment
 
@@ -211,10 +241,11 @@ door release check passed for b5; broader production comparison remains necessar
 Activity and Connectivity share the existing polling/webhook resource reads and
 do not require separate polling requests.
 
-Further Fabman API support and extended equipment information remain possible
-future work. Power measurements or additional equipment logs are not currently
-provided as entities. Resource synchronization, previously listed as planned,
-is implemented in v0.2.0 as described above.
+POS authorization monitoring and Nuki status are available for beta testing in
+v0.3.0b1. Further Fabman API support and extended equipment information remain
+possible future work. Power measurements and general resource-log history are not
+provided as entities. Resource synchronization, previously listed as planned, is
+implemented in v0.2.0 as described above.
 
 ## Development
 

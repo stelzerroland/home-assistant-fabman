@@ -6,7 +6,9 @@ from asyncio import Lock
 from dataclasses import dataclass
 from datetime import timedelta
 
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -21,11 +23,38 @@ from .const import (
     DEFAULT_API_URL,
     DEFAULT_ENABLE_PERIODIC_SYNC,
     DEFAULT_POLL_INTERVAL,
+    DOMAIN,
 )
 from .helpers import get_door_close_time, is_supported_resource
 from .lifecycle import resource_is_current
+from .nuki import normalized_identifier, device_identifier
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _aware_timestamp(value):
+    """Parse only timezone-aware timestamps from API and storage data."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = dt_util.parse_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if parsed is not None and parsed.tzinfo is not None else None
+
+
+def _numeric_id(value):
+    """Normalize a positive integer ID without accepting booleans or paths."""
+    if type(value) is int and value > 0:
+        return str(value)
+    if (
+        isinstance(value, str)
+        and len(value) <= 20
+        and value.isdecimal()
+        and int(value) > 0
+    ):
+        return str(int(value))
+    return None
 
 
 @dataclass(frozen=True)
@@ -40,7 +69,7 @@ class PendingCommand:
 class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
     """Fetch resources and own all timers for one config entry."""
 
-    def __init__(self, hass, config):
+    def __init__(self, hass, config, entry_id=None):
         self.api_token = config[CONF_API_TOKEN]
         self.api_url = config.get(CONF_API_URL, DEFAULT_API_URL)
         self.enable_periodic_sync = config.get(
@@ -56,6 +85,18 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self.pending_commands = {}
         self.command_locks = defaultdict(Lock)
         self._assigned_door_grants = {}
+        self._nuki_devices_by_space = {}
+        self._nuki_failed_spaces = set()
+        self._pos_event_listeners = defaultdict(set)
+        self._pending_pos_events = defaultdict(list)
+        self._pos_cursors = {}
+        self._pos_seen_ids = defaultdict(set)
+        self._pos_cursors_loaded = False
+        self._pos_cursor_store = (
+            Store(hass, 1, f"{DOMAIN}_{entry_id}_pos_cursors")
+            if entry_id is not None
+            else None
+        )
         self.last_successful_fetch = None
         self.resource_count = 0
         self.invalid_resource_count = 0
@@ -78,9 +119,8 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("Fabman rate limit cooldown active")
         revision = self._revision
         try:
-            resources = await FabmanAPI(
-                self._session, self.api_url, self.api_token
-            ).get_resources()
+            api = FabmanAPI(self._session, self.api_url, self.api_token)
+            resources = await api.get_resources()
             if not isinstance(resources, list):
                 raise FabmanAPIError("Fabman resource response is not a list")
             new_data = {}
@@ -98,6 +138,13 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
                 new_data[resource_id] = resource
             if resources and not new_data:
                 raise FabmanAPIError("Resource snapshot has no identifiable resources")
+            await self._async_load_pos_cursors()
+            nuki_devices, nuki_failed_spaces = await self._fetch_nuki_devices(
+                api, new_data
+            )
+            pos_events, pos_cursors, pos_seen_ids = await self._fetch_pos_events(
+                api, new_data
+            )
         except Exception as err:
             if isinstance(err, FabmanRateLimitError):
                 self._retry_not_before = self.hass.loop.time() + err.retry_after
@@ -111,6 +158,13 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         if self._unloaded or revision != self._revision:
             return self._discard_outdated_snapshot()
         self._revision += 1
+        self._nuki_devices_by_space = nuki_devices
+        self._nuki_failed_spaces = nuki_failed_spaces
+        self._pos_cursors = pos_cursors
+        self._pos_seen_ids = defaultdict(set, pos_seen_ids)
+        await self._async_save_pos_cursors()
+        for event in pos_events:
+            self._dispatch_pos_event(event)
         self.last_successful_fetch = dt_util.utcnow()
         self.resource_count = len(resources)
         self.invalid_resource_count = invalid_count
@@ -125,13 +179,19 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             if (
                 resource is not None
                 and command.is_on
-                and resource.get("controlType") == "door"
+                and resource.get("controlType") in ("door", "nuki")
             ):
                 usage = resource.get("lastUsed")
                 # A short release can already be over when the snapshot arrives.
                 # Its new successful grant still acknowledges the opening command.
                 matches = (
-                    observed.reason in ("door_release_active", "door_release_expired")
+                    observed.reason
+                    in (
+                        "door_release_active",
+                        "door_release_expired",
+                        "nuki_access_active",
+                        "nuki_access_expired",
+                    )
                     and isinstance(usage, dict)
                     and usage.get("type", "allowed") == "allowed"
                 )
@@ -171,7 +231,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             return resource
         usage = resource.get("lastUsed")
         if (
-            resource.get("controlType") != "door"
+            resource.get("controlType") not in ("door", "nuki")
             or not isinstance(usage, dict)
             or usage.get("id") != grant[0]
         ):
@@ -182,7 +242,8 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         """Retain the verified original grant time before changing its member."""
         if (
             self._unloaded
-            or self.data.get(resource_id, {}).get("controlType") != "door"
+            or self.data.get(resource_id, {}).get("controlType")
+            not in ("door", "nuki")
         ):
             return
         self._assigned_door_grants[resource_id] = (log["id"], log["createdAt"])
@@ -244,12 +305,13 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         usage = resource.get("lastUsed")
         previous_grant = (
             usage.get("at")
-            if resource.get("controlType") == "door" and isinstance(usage, dict)
+            if resource.get("controlType") in ("door", "nuki")
+            and isinstance(usage, dict)
             else None
         )
         previous_usage_id = (
             usage.get("id")
-            if resource.get("controlType") == "door"
+            if resource.get("controlType") in ("door", "nuki")
             and isinstance(usage, dict)
             and type(usage.get("id")) is int
             else None
@@ -281,7 +343,244 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self._unloaded = True
         self.pending_commands.clear()
         self._assigned_door_grants.clear()
+        self._pos_event_listeners.clear()
+        self._pending_pos_events.clear()
         for timers in (self._door_timers, self._refresh_timers):
             for timer in timers.values():
                 timer.cancel()
             timers.clear()
+
+    def nuki_space_available(self, resource):
+        """Return whether the latest Nuki device list for this space succeeded."""
+        space_id = resource.get("space") if isinstance(resource, dict) else None
+        key = _numeric_id(space_id)
+        if key is None:
+            return False
+        return key in self._nuki_devices_by_space and key not in self._nuki_failed_spaces
+
+    def nuki_device(self, resource):
+        """Find the Nuki status record linked to one Fabman resource."""
+        if not isinstance(resource, dict):
+            return None
+        space_id = _numeric_id(resource.get("space"))
+        nuki_id = normalized_identifier(resource.get("nukiDeviceId"))
+        if space_id is None or nuki_id is None:
+            return None
+        devices = self._nuki_devices_by_space.get(space_id, {})
+        return devices.get(nuki_id)
+
+    @callback
+    def add_pos_event_listener(self, resource_id, listener):
+        """Subscribe to new POS authorization events for one resource."""
+        listeners = self._pos_event_listeners[resource_id]
+        listeners.add(listener)
+        for event in self._pending_pos_events.pop(resource_id, []):
+            listener(event)
+
+        @callback
+        def remove_listener():
+            listeners.discard(listener)
+            if not listeners:
+                self._pos_event_listeners.pop(resource_id, None)
+
+        return remove_listener
+
+    async def _async_load_pos_cursors(self):
+        """Restore POS log watermarks without replaying history on first setup."""
+        if self._pos_cursors_loaded:
+            return
+        self._pos_cursors_loaded = True
+        if self._pos_cursor_store is None:
+            return
+        try:
+            saved = await self._pos_cursor_store.async_load()
+        except Exception:
+            _LOGGER.warning("Unable to restore POS event cursors")
+            return
+        if not isinstance(saved, dict):
+            return
+        resources = saved.get("resources")
+        if not isinstance(resources, dict):
+            return
+        for resource_id, record in resources.items():
+            if not isinstance(record, dict):
+                continue
+            cursor = _aware_timestamp(record.get("cursor"))
+            if cursor is None:
+                continue
+            self._pos_cursors[str(resource_id)] = cursor
+            seen = record.get("seen", [])
+            if isinstance(seen, list):
+                self._pos_seen_ids[str(resource_id)] = {
+                    value for value in seen if type(value) is int and value > 0
+                }
+
+    async def _async_save_pos_cursors(self):
+        """Persist resource IDs, timestamps and log IDs without member data."""
+        if self._pos_cursor_store is None:
+            return
+        try:
+            await self._pos_cursor_store.async_save(
+                {
+                    "resources": {
+                        resource_id: {
+                            "cursor": cursor.isoformat(),
+                            "seen": sorted(
+                                self._pos_seen_ids.get(resource_id, set())
+                            )[-2000:],
+                        }
+                        for resource_id, cursor in self._pos_cursors.items()
+                    }
+                }
+            )
+        except Exception:
+            _LOGGER.warning("Unable to save POS event cursors")
+
+    async def _fetch_nuki_devices(self, api, resources):
+        """Read each linked Fabman space once; isolate telemetry failures."""
+        spaces = {
+            space_id
+            for resource in resources.values()
+            if resource.get("controlType") == "nuki"
+            and resource_is_current(resource)
+            and is_supported_resource(resource)
+            and (space_id := _numeric_id(resource.get("space"))) is not None
+        }
+        devices_by_space = {}
+        failed_spaces = set()
+        for space_id in spaces:
+            try:
+                devices = await api.get_nuki_devices(space_id)
+                if not isinstance(devices, list):
+                    raise FabmanAPIError("Fabman Nuki response is not a list")
+            except FabmanAPIError as err:
+                failed_spaces.add(space_id)
+                if isinstance(err, FabmanRateLimitError):
+                    self._retry_not_before = max(
+                        self._retry_not_before,
+                        self.hass.loop.time() + err.retry_after,
+                    )
+                _LOGGER.warning(
+                    "Fabman Nuki status read failed for space %s: %s", space_id, err
+                )
+                continue
+            mapped = {}
+            for device in devices:
+                identifier = device_identifier(device)
+                if identifier is not None:
+                    mapped[identifier] = device
+            devices_by_space[space_id] = mapped
+        return devices_by_space, failed_spaces
+
+    async def _fetch_pos_events(self, api, resources):
+        """Catch up allowed POS logs incrementally and omit personal fields."""
+        now = dt_util.utcnow()
+        cursors = dict(self._pos_cursors)
+        seen_ids = {
+            resource_id: set(values)
+            for resource_id, values in self._pos_seen_ids.items()
+        }
+        events = []
+        current_pos_ids = {
+            str(resource_id)
+            for resource_id, resource in resources.items()
+            if resource.get("controlType") == "pos"
+            and resource_is_current(resource)
+            and is_supported_resource(resource)
+        }
+        for resource_id in set(cursors) - current_pos_ids:
+            # Do not replay logs accumulated while a POS resource was inactive.
+            cursors.pop(resource_id, None)
+            seen_ids.pop(resource_id, None)
+        for resource_id, resource in resources.items():
+            if (
+                resource.get("controlType") != "pos"
+                or not resource_is_current(resource)
+                or not is_supported_resource(resource)
+            ):
+                continue
+            key = str(resource_id)
+            cursor = cursors.get(key)
+            if cursor is None:
+                # Do not replay the POS's historical activity on first setup.
+                cursors[key] = now
+                seen_ids.setdefault(key, set())
+                continue
+            from_time = (cursor - timedelta(seconds=1)).isoformat()
+            try:
+                logs = await api.get_resource_logs(resource_id, from_time)
+                if not isinstance(logs, list):
+                    raise FabmanAPIError("Fabman POS log response is not a list")
+            except FabmanAPIError as err:
+                if isinstance(err, FabmanRateLimitError):
+                    self._retry_not_before = max(
+                        self._retry_not_before,
+                        self.hass.loop.time() + err.retry_after,
+                    )
+                _LOGGER.warning(
+                    "Fabman POS log read failed for resource %s: %s", resource_id, err
+                )
+                continue
+            ids = seen_ids.setdefault(key, set())
+            newest = cursor
+            accepted = []
+            for log in logs:
+                if (
+                    not isinstance(log, dict)
+                    or log.get("resource") != resource_id
+                    or log.get("account", resource.get("account"))
+                    != resource.get("account")
+                    or log.get("type") != "allowed"
+                    or type(log.get("id")) is not int
+                    or log["id"] <= 0
+                ):
+                    continue
+                created_at = _aware_timestamp(log.get("createdAt"))
+                if (
+                    created_at is None
+                    or created_at.tzinfo is None
+                    or created_at > now
+                    or created_at < cursor - timedelta(seconds=1)
+                    or log["id"] in ids
+                ):
+                    continue
+                accepted.append((created_at, log))
+            for created_at, log in sorted(
+                accepted, key=lambda item: (item[0], item[1]["id"])
+            ):
+                ids.add(log["id"])
+                newest = max(newest, created_at)
+                events.append(
+                    {
+                        "id": log["id"],
+                        "resource": resource_id,
+                        "type": "allowed",
+                        "createdAt": log.get("createdAt"),
+                        "stoppedAt": log.get("stoppedAt")
+                        if isinstance(log.get("stoppedAt"), str)
+                        else None,
+                        "stopType": log.get("stopType")
+                        if isinstance(log.get("stopType"), str)
+                        else None,
+                    }
+                )
+            cursors[key] = max(now, newest)
+            if len(ids) > 2000:
+                ids.intersection_update(
+                    log["id"]
+                    for log in logs
+                    if isinstance(log, dict)
+                    and type(log.get("id")) is int
+                    and log.get("resource") == resource_id
+                )
+        return events, cursors, seen_ids
+
+    @callback
+    def _dispatch_pos_event(self, event):
+        """Keep events pending until the matching HA entity is listening."""
+        listeners = self._pos_event_listeners.get(event["resource"])
+        if listeners:
+            for listener in tuple(listeners):
+                listener(event)
+        else:
+            self._pending_pos_events[event["resource"]].append(event)

@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Keep existing installations' configured endpoint working during upgrades.
 WEBHOOK_ID = "fabman_webhook"
-PLATFORMS = ["switch", "sensor", "binary_sensor"]
+PLATFORMS = ["switch", "sensor", "binary_sensor", "event"]
 
 
 def entry_webhook_id(entry_id):
@@ -25,7 +25,7 @@ def entry_webhook_id(entry_id):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the coordinator, entities and entry-specific webhook."""
-    coordinator = FabmanDataUpdateCoordinator(hass, entry.data)
+    coordinator = FabmanDataUpdateCoordinator(hass, entry.data, entry.entry_id)
     coordinators = hass.data.setdefault(DOMAIN, {})
     webhook_id = entry_webhook_id(entry.entry_id)
     registered = []

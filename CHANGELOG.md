@@ -1,3 +1,16 @@
+# v0.3.0b1 (beta)
+
+- Support Nuki resources with the Fabman access switch and timed activity interval.
+- Add Nuki locked-state and battery sensors from Fabman's synchronized status.
+- Add read-only POS authorization events for successful Fabman resource-log entries.
+- Keep POS resources free of switch and on/off activity entities; omit member data from events.
+- Retain Connectivity and resource lifecycle behavior across supported resource types.
+- Store incremental POS log cursors without replaying earlier history on first setup.
+- Add regression coverage for API pagination, invalid IDs, Nuki states and entity behavior.
+- Live Nuki command behavior and Happylab POS/Nuki telemetry remain to be verified.
+
+See [beta notes and HACS installation](docs/releases/v0.3.0b1.md).
+
 # v0.2.0
 
 - Publish the cumulative b1–b6 changes as a stable release, including native Activity

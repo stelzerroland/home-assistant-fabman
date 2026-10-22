@@ -167,6 +167,21 @@ def test_invalid_door_grant_time_is_unknown(timestamp):
     assert evaluate_activity(resource, now=NOW).is_on is None
 
 
+@pytest.mark.parametrize("elapsed, expected", [(0, True), (9.999, True), (10, False)])
+def test_nuki_access_activity_uses_the_fabman_release_window(elapsed, expected):
+    resource = machine()
+    resource.update(controlType="nuki", maxOfflineUsage=10)
+    resource["lastUsed"].update(at=NOW.isoformat(), stopType="automatic")
+
+    result = evaluate_activity(resource, now=NOW + timedelta(seconds=elapsed))
+
+    assert result.is_on is expected
+    assert result.source == "nuki_access_timer"
+    assert result.reason == (
+        "nuki_access_active" if expected else "nuki_access_expired"
+    )
+
+
 def test_long_running_machine_does_not_expire_arbitrarily():
     assert evaluate_activity(machine(), now=NOW).is_on is True
 

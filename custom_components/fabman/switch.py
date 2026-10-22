@@ -43,6 +43,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ),
         ),
         async_add_entities,
+        resource_filter=lambda resource: resource.get("controlType")
+        in ("machine", "door", "nuki"),
     )
 
 

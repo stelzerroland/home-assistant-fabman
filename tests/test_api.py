@@ -21,7 +21,7 @@ from .factories import machine
 @asynccontextmanager
 async def fake_api(handler):
     app = web.Application()
-    app.router.add_route("*", "/api/v1/resources", handler)
+    app.router.add_route("*", "/api/v1/{tail:.*}", handler)
     async with TestServer(app) as server, aiohttp.ClientSession() as session:
         yield FabmanAPI(session, str(server.make_url("/api/v1")), "synthetic-token")
 
@@ -202,3 +202,50 @@ async def test_pagination_must_not_narrow_lifecycle_filters():
     async with fake_api(handler) as api:
         with pytest.raises(FabmanAPIError, match="pagination filters"):
             await api.get_resources()
+
+
+async def test_resource_log_reads_keep_resource_and_authorization_filters():
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        assert request.path == "/api/v1/resource-logs"
+        assert request.query["resource"] == "1515"
+        assert request.query["from"] == "2026-10-22T12:00:00+00:00"
+        assert request.query["type"] == "allowed"
+        if request.query.get("offset"):
+            assert request.query["resource"] == "1515"
+            assert request.query["type"] == "allowed"
+            return web.json_response(
+                [{"id": 2, "resource": 1515}],
+                headers={"X-Total-Count": "2"},
+            )
+        return web.json_response(
+            [{"id": 1, "resource": 1515}],
+            headers={
+                "X-Total-Count": "2",
+                "Link": (
+                    '<?offset=1&resource=1515&from=2026-10-22T12%3A00%3A00%2B00%3A00'
+                    '&type=allowed&limit=100>; rel="next"'
+                ),
+            },
+        )
+
+    async with fake_api(handler) as api:
+        logs = await api.get_resource_logs(1515, "2026-10-22T12:00:00+00:00")
+
+    assert [item["id"] for item in logs] == [1, 2]
+    assert len(calls) == 2
+    assert calls[1].query["resource"] == "1515"
+    assert calls[1].query["type"] == "allowed"
+
+
+async def test_nuki_device_read_uses_validated_space_path():
+    async def handler(request):
+        assert request.path == "/api/v1/spaces/5/integrations/nuki/devices"
+        return web.json_response([{"smartlockId": 88}])
+
+    async with fake_api(handler) as api:
+        assert await api.get_nuki_devices("005") == [{"smartlockId": 88}]
+        with pytest.raises(FabmanAPIError, match="space ID"):
+            await api.get_nuki_devices("../resources")

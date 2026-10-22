@@ -3,6 +3,7 @@
 import asyncio
 from copy import deepcopy
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.util import dt as dt_util
@@ -162,3 +163,95 @@ async def test_door_expiry_does_not_forge_recovery_from_api_error(coordinator):
     coordinator.last_update_success = False
     coordinator._door_expired(1)
     assert not coordinator.last_update_success
+
+
+async def test_pos_log_updates_emit_only_new_allowed_nonpersonal_events(coordinator):
+    now = dt_util.utcnow()
+    resource = {**coordinator.data[1], "controlType": "pos"}
+    coordinator._pos_cursors = {"1": now - timedelta(seconds=10)}
+    coordinator._pos_seen_ids = {"1": {11}}
+    logs = [
+        {
+            "id": 10,
+            "resource": 1,
+            "account": 42,
+            "type": "allowed",
+            "createdAt": (now - timedelta(seconds=3)).isoformat(),
+            "stoppedAt": None,
+            "stopType": None,
+            "member": {"emailAddress": "private@example.com"},
+        },
+        {
+            "id": 11,
+            "resource": 1,
+            "account": 42,
+            "type": "allowed",
+            "createdAt": (now - timedelta(seconds=2)).isoformat(),
+        },
+        {
+            "id": 12,
+            "resource": 1,
+            "account": 42,
+            "type": "denied",
+            "createdAt": (now - timedelta(seconds=1)).isoformat(),
+        },
+        {
+            "id": 13,
+            "resource": 1,
+            "account": 42,
+            "type": "allowed",
+            "createdAt": {"invalid": "timestamp"},
+        },
+    ]
+    api = SimpleNamespace(get_resource_logs=AsyncMock(return_value=logs))
+
+    events, cursors, seen_ids = await coordinator._fetch_pos_events(api, {1: resource})
+
+    assert [event["id"] for event in events] == [10]
+    assert events[0] == {
+        "id": 10,
+        "resource": 1,
+        "type": "allowed",
+        "createdAt": logs[0]["createdAt"],
+        "stoppedAt": None,
+        "stopType": None,
+    }
+    assert cursors["1"] >= now
+    assert seen_ids["1"] == {10, 11}
+    api.get_resource_logs.assert_awaited_once_with(
+        1, (now - timedelta(seconds=11)).isoformat()
+    )
+
+
+async def test_pos_cursor_is_discarded_when_resource_is_inactive(coordinator):
+    now = dt_util.utcnow()
+    coordinator._pos_cursors = {"1": now - timedelta(days=1)}
+    coordinator._pos_seen_ids = {"1": {10}}
+    api = SimpleNamespace(get_resource_logs=AsyncMock())
+
+    events, cursors, seen_ids = await coordinator._fetch_pos_events(
+        api, {1: {**coordinator.data[1], "controlType": "pos", "state": "archived"}}
+    )
+
+    assert events == []
+    assert cursors == {}
+    assert seen_ids == {}
+    api.get_resource_logs.assert_not_awaited()
+
+
+async def test_nuki_devices_are_fetched_per_valid_space_and_linked(coordinator):
+    resources = {
+        1: {**coordinator.data[1], "controlType": "nuki", "space": "005", "nukiDeviceId": "0088"},
+        2: {**coordinator.data[1], "id": 2, "controlType": "nuki", "space": "../5"},
+    }
+    device = {"smartlockId": 88, "serverState": 0, "state": {"state": 1}}
+    api = SimpleNamespace(get_nuki_devices=AsyncMock(return_value=[device]))
+
+    by_space, failures = await coordinator._fetch_nuki_devices(api, resources)
+    coordinator._nuki_devices_by_space = by_space
+
+    api.get_nuki_devices.assert_awaited_once_with("5")
+    assert failures == set()
+    assert coordinator.nuki_space_available(resources[1])
+    assert coordinator.nuki_device(resources[1]) == device
+    assert not coordinator.nuki_space_available(resources[2])

@@ -75,7 +75,7 @@ async def test_connection_errors_reach_caller(coordinator, error):
     assert coordinator.data[1]["lastUsed"] is None
 
 
-@pytest.mark.parametrize("control_type", ["machine", "door"])
+@pytest.mark.parametrize("control_type", ["machine", "door", "nuki"])
 async def test_success_reports_an_assumption_without_forging_activity(
     coordinator, control_type
 ):
