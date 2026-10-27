@@ -6,8 +6,9 @@ are read-only and report successful authorization events.
 
 The current stable release is **v0.2.0**, incorporating the changes from betas
 b1–b6, including activity/connectivity entities, resource synchronization and
-optional usage member assignment. The **v0.3.0b1 beta** adds read-only POS events
-and Nuki access, lock-state and battery entities for live testing.
+optional usage member assignment. The **v0.3.0b2 beta** includes POS events and
+Nuki access, lock-state and battery entities, and adds a 30-second command
+confirmation timeout.
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
 limitations are documented below; testing and feedback are welcome.
@@ -51,6 +52,17 @@ An accepted switch command initially produces an **assumed** switch state. It
 does not establish that the resource is actually running. API observations confirm
 the state. Ambiguous or invalid usage and offline/unknown bridge connectivity
 make activity unknown. Failed API reads make the entities unavailable.
+
+Command confirmation has a **30-second local timeout**, including when periodic
+sync is disabled or API reads fail. Without a matching observation, the assumed
+switch state ends, Switch/Activity/Status remain unknown, and Activity/Status expose
+`status_reason: command_timeout` instead of `command_unconfirmed`. A persistent HA
+notification explains the failure. An unchanged old door grant cannot clear this
+error; a later matching observation can, and dismisses the notification. The timeout
+does not retry activation, send a switch-off, or cancel a pending command at Fabman.
+Check the server/hardware before retrying. Timeout state is local and is not
+preserved across an integration reload or HA restart. Custom dashboard cards must
+use `command_timeout` to distinguish a failed confirmation from ongoing waiting.
 
 For doors, Activity represents an allowed **release interval**, not a physical
 door contact. It remains on for `maxOfflineUsage` seconds after the reported grant
@@ -101,10 +113,10 @@ check automations that depend on their previous behavior before updating.
 For a rollback, select v0.1.1 and restart again; that version lacks the native
 activity/connectivity sensors, resource lifecycle handling and member action.
 
-To try the **v0.3.0b1 beta**, open Fabman in HACS, choose **⋮ → Redownload**,
-enable **Show beta versions**, select **v0.3.0b1**, download it and restart Home
+To try the **v0.3.0b2 beta**, open Fabman in HACS, choose **⋮ → Redownload**,
+enable **Show beta versions**, select **v0.3.0b2**, download it and restart Home
 Assistant. To return to stable, repeat these steps with beta versions disabled and
-select **v0.2.0**. Review the [beta release notes](docs/releases/v0.3.0b1.md)
+select **v0.2.0**. Review the [beta release notes](docs/releases/v0.3.0b2.md)
 before testing; POS authorizations are events rather than on/off state, and Nuki
 commands and telemetry have not yet been validated against Happylab hardware.
 
@@ -112,7 +124,7 @@ commands and telemetry have not yet been validated against Happylab hardware.
 
 Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart HA,
 then add the integration as described above. Install v0.2.0 for stable features
-or v0.3.0b1 to test POS and Nuki support.
+or v0.3.0b2 to test POS and Nuki support.
 
 ## Optional member assignment
 
@@ -242,7 +254,7 @@ Activity and Connectivity share the existing polling/webhook resource reads and
 do not require separate polling requests.
 
 POS authorization monitoring and Nuki status are available for beta testing in
-v0.3.0b1. Further Fabman API support and extended equipment information remain
+v0.3.0b2. Further Fabman API support and extended equipment information remain
 possible future work. Power measurements and general resource-log history are not
 provided as entities. Resource synchronization, previously listed as planned, is
 implemented in v0.2.0 as described above.

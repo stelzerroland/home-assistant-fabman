@@ -1,3 +1,13 @@
+# v0.3.0b2 (beta)
+
+- End unconfirmed switch assumptions after 30 seconds independently of polling.
+- Keep timed-out command activity unknown with `command_timeout` and a persistent
+  notification; recover on a later matching observation without replaying commands.
+- Cancel command deadlines on confirmation, replacement, removal or unload;
+  preserve API failure availability and never automatically retry or switch off.
+
+See [beta notes and HACS installation](docs/releases/v0.3.0b2.md).
+
 # v0.3.0b1 (beta)
 
 - Support Nuki resources with the Fabman access switch and timed activity interval.
