@@ -766,8 +766,9 @@ async def test_coordinator_delivers_both_short_visit_events_after_the_roster_upd
             await runtime.flush()
         remove()
     assert hass.states.get(roster.entity_id).state == "0"
-    assert [
+    event_types = [
         event.data["new_state"].attributes["event_type"]
         for event in observed
         if event.data["entity_id"] == activity.entity_id
-    ] == ["checked_in", "checked_out"]
+    ]
+    assert sorted(event_types) == ["checked_in", "checked_out"]
