@@ -72,7 +72,7 @@ class PendingCommand:
 class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
     """Fetch resources and own all timers for one config entry."""
 
-    def __init__(self, hass, config, entry_id=None):
+    def __init__(self, hass, config, entry_id=None, user_member_map=None):
         self.api_token = config[CONF_API_TOKEN]
         self.api_url = config.get(CONF_API_URL, DEFAULT_API_URL)
         self.enable_periodic_sync = config.get(
@@ -94,6 +94,16 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self._nuki_devices_by_space = {}
         self._nuki_failed_spaces = set()
         self.presence = PresenceTracker()
+        configured_map = user_member_map if isinstance(user_member_map, dict) else {}
+        self.user_member_map = {
+            user_id: member_id
+            for user_id, member_id in configured_map.items()
+            if isinstance(user_id, str)
+            and type(member_id) is int
+            and 0 < member_id <= 2147483647
+        }
+        self.last_activations = {}
+        self._activation_event_listeners = defaultdict(set)
         self._pos_event_listeners = defaultdict(set)
         self._pending_pos_events = defaultdict(list)
         self._pos_cursors = {}
@@ -428,6 +438,8 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self.timed_out_commands.clear()
         self._assigned_door_grants.clear()
         self._pos_event_listeners.clear()
+        self._activation_event_listeners.clear()
+        self.last_activations.clear()
         self._pending_pos_events.clear()
         self.presence.close()
         for timers in (
@@ -475,6 +487,31 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
                 self._pos_event_listeners.pop(resource_id, None)
 
         return remove_listener
+
+    @callback
+    def add_activation_event_listener(self, resource_id, listener):
+        """Subscribe to accepted Home Assistant activation events."""
+        listeners = self._activation_event_listeners[resource_id]
+        listeners.add(listener)
+
+        @callback
+        def remove_listener():
+            listeners.discard(listener)
+            if not listeners:
+                self._activation_event_listeners.pop(resource_id, None)
+
+        return remove_listener
+
+    @callback
+    def async_note_activation(self, resource_id, event):
+        """Keep the latest accepted activation and notify event/sensor entities."""
+        if self._unloaded:
+            return
+        activation = {**event, "resource_id": resource_id}
+        self.last_activations[resource_id] = activation
+        for listener in tuple(self._activation_event_listeners.get(resource_id, ())):
+            listener(activation)
+        self.async_update_listeners()
 
     async def _async_load_pos_cursors(self):
         """Restore POS log watermarks without replaying history on first setup."""

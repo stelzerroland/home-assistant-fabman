@@ -8,7 +8,7 @@ from homeassistant.components.webhook import async_register, async_unregister
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import CONF_USER_MEMBER_MAP, DOMAIN
 from .coordinator import FabmanDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,7 +25,12 @@ def entry_webhook_id(entry_id):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the coordinator, entities and entry-specific webhook."""
-    coordinator = FabmanDataUpdateCoordinator(hass, entry.data, entry.entry_id)
+    coordinator = FabmanDataUpdateCoordinator(
+        hass,
+        entry.data,
+        entry.entry_id,
+        entry.options.get(CONF_USER_MEMBER_MAP, {}),
+    )
     coordinators = hass.data.setdefault(DOMAIN, {})
     webhook_id = entry_webhook_id(entry.entry_id)
     registered = []

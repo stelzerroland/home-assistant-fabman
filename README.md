@@ -6,12 +6,11 @@ are read-only and report successful authorization events. `checkIn` terminals ar
 read-only: they expose bridge connectivity and contribute space-level attendance
 entities with member lists and check-in/check-out events.
 
-The current stable release is **v0.2.0**, incorporating the changes from betas
-b1–b6, including activity/connectivity entities, resource synchronization and
-optional usage member assignment. The **v0.3.0b1 beta** adds read-only POS events
-and Nuki access, lock-state and battery entities for live testing.
-The check-in attendance support described below is implemented in the development
-branch and is **not yet included in a published release**.
+The current stable release is **v0.2.0**. The **v0.3.0b3 beta** combines POS and
+Nuki support, command confirmation timeouts, read-only check-in attendance, and
+optional per-Home-Assistant-user Fabman attribution. Attendance and user mapping
+are available in this beta but are not part of the stable release.
+
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
 limitations are documented below; testing and feedback are welcome.
@@ -34,6 +33,7 @@ event entity belong to a separate **Fabman – <space name>** service device.
 | Nuki Lock binary sensor | Current lock state reported by Fabman (`on` means unlocked); transitions and unknown states stay unknown |
 | Nuki Battery sensor | Battery percentage reported by Fabman |
 | POS Authorization event | A successful (`allowed`) POS authorization from Fabman's resource log |
+| Activation event | Accepted bridge activation, with the HA caller and member-assignment result |
 | Checked-in members sensor (per space) | Number of distinct checked-in members, with their current list in `members` |
 | Check-in activity event (per space) | `checked_in` and `checked_out`, including the affected Fabman member |
 
@@ -176,24 +176,24 @@ check automations that depend on their previous behavior before updating.
 For a rollback, select v0.1.1 and restart again; that version lacks the native
 activity/connectivity sensors, resource lifecycle handling and member action.
 
-To try the **v0.3.0b1 beta**, open Fabman in HACS, choose **⋮ → Redownload**,
-enable **Show beta versions**, select **v0.3.0b1**, download it and restart Home
+To try the **v0.3.0b3 beta**, open Fabman in HACS, choose **⋮ → Redownload**,
+enable **Show beta versions**, select **v0.3.0b3**, download it and restart Home
 Assistant. To return to stable, repeat these steps with beta versions disabled and
-select **v0.2.0**. Review the [beta release notes](docs/releases/v0.3.0b1.md)
-before testing; POS authorizations are events rather than on/off state, and Nuki
-commands and telemetry have not yet been validated against Happylab hardware.
+select **v0.2.0**. Review the [beta release notes](docs/releases/v0.3.0b3.md)
+before testing. Check-in terminals are read-only; no physical bridge commands were
+sent during validation, and live behavior still needs a controlled pilot.
 
 ### Manual installation
 
 Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart HA,
 then add the integration as described above. Install v0.2.0 for stable features
-or v0.3.0b1 to test POS and Nuki support.
+or v0.3.0b3 to test POS, Nuki, attendance and user attribution.
 
 ## Optional member assignment
 
 The additional **Fabman: Turn on** action (`fabman.turn_on`) can assign the
-resulting usage to a different Fabman member. Existing switch controls keep their
-behavior. No extra entity, global default or HA-user mapping is introduced.
+resulting usage to a different Fabman member. The integration also supports a
+per-user Home Assistant to Fabman member mapping, as described below.
 
 Use it in **Developer tools → Actions**, a script, an automation or a dashboard
 button. Select a Fabman switch and provide **either** `member_id` **or**
@@ -217,11 +217,14 @@ data:
   member_id: 12345
 ```
 
-Omit both fields to use the API-key member as usual. Supplying both is rejected
-before activation. Member IDs must be positive integers. An email search must
-return exactly one result with the exact email address, ignoring case. A missing,
-ambiguous or cross-account member aborts before activation; there is no silent
-fallback to the API member. If a text search is ambiguous, use the numeric ID.
+The authenticated HA user's mapping takes precedence over these fields. If that
+user has no mapping, the API-key member is used and the fields are ignored. Without
+an authenticated HA user context, omit both fields to use the API-key member as usual.
+Supplying both fields is rejected before activation. Member IDs must be positive
+integers. An email search must return exactly one result with the exact email
+address, ignoring case. For a context-free call, a missing, ambiguous or
+cross-account member aborts before activation; there is no silent fallback to the
+API member. If an email search is ambiguous, use the numeric ID.
 
 The integration validates the member and reads a fresh usage baseline, sends one
 remote activation, waits up to 30 seconds for its confirmed execution and assigns
@@ -248,8 +251,8 @@ leave attribution incomplete; pending assignments are not persisted.
 **Activation uses the configured API account's permissions.** Reassigning a log
 does not check the selected member's training, access rights or presence. It can
 affect that member's charges, packages and discounts. Normal HA entity-control
-permissions apply to the action. There is no automatic mapping from the HA caller
-to a Fabman member.
+permissions apply to the action. Configure HA-user mappings in the Fabman
+integration options.
 
 Switch off through `switch.turn_off` as usual. For an assigned door usage, HA keeps
 the verified original log creation time in memory so changing the member does not
@@ -261,6 +264,32 @@ member still require a controlled pilot before relying on the feature.
 
 References: [Fabman API schema](https://fabman.io/api/v1/swagger.json),
 [reassigning activity and related charges](https://help.fabman.io/article/39-reassign-activity).
+
+## Home Assistant user mappings
+
+Open the Fabman integration's **Configure** options and add a mapping for each
+employee account. Select the Home Assistant user, then enter that person's Fabman
+member ID or exact email address. Email is resolved to a member in the integration's
+Fabman account, and the canonical numeric member ID is stored. Mappings are scoped
+to this Fabman integration entry and keyed by HA user ID; renaming an HA account
+does not break its mapping. The mapping can be updated or removed from the same
+options flow.
+
+For **fabman.turn_on** and ordinary **switch.turn_on** actions, Home Assistant
+supplies the caller's user ID. If that ID has a mapping, the integration validates
+the Fabman member and attributes the new usage to that member. If the caller has no
+mapping, it leaves the Fabman usage with the API-key member; it does not attempt a
+reassignment. Calls without an HA user ID also use the API-key member unless an
+explicit member ID or email is supplied to fabman.turn_on. An automation that
+carries a user ID uses that user's mapping; scheduled or system-triggered
+automations without one use the API-key member by default.
+
+Each accepted bridge activation creates an **Activation** event on its resource.
+The event includes ha_user_name, ha_user_id, attribution,
+assignment_status, requested_member_id and assigned_member_id. The resource
+status sensor also exposes the latest activation in last_activation_* attributes.
+This latest-activation snapshot is kept in memory and resets when the
+integration reloads or Home Assistant restarts.
 
 ## Optional webhooks
 
@@ -316,9 +345,10 @@ door release check passed for b5; broader production comparison remains necessar
 Activity and Connectivity share the existing polling/webhook resource reads and
 do not require separate polling requests.
 
-POS authorization monitoring and Nuki status are available for beta testing in
-v0.3.0b1. Further Fabman API support and extended equipment information remain
-possible future work. Power measurements and general resource-log history are not
+POS authorization monitoring, Nuki status, read-only attendance and per-user
+attribution are available for beta testing in v0.3.0b3. Further Fabman API support
+and extended equipment information remain possible future work.
+Power measurements and general resource-log history are not
 provided as entities. Resource synchronization, previously listed as planned, is
 implemented in v0.2.0 as described above.
 

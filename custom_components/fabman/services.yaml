@@ -1,9 +1,11 @@
 turn_on:
   name: Turn on
   description: >-
-    Turn on a Fabman resource. Optionally reassign the resulting usage to a member.
-    Activation uses the API account's permissions, not the selected member's permissions.
-    Specify either a member ID or an email address, or leave both empty.
+    Turn on a Fabman resource. A mapping configured for the authenticated
+    Home Assistant user takes precedence. If that user has no mapping, the
+    API-key member is used and the optional member fields are ignored.
+    Without an authenticated user context, optionally reassign the resulting
+    usage to a member. Activation always uses the API account's permissions.
   target:
     entity:
       integration: fabman
@@ -11,7 +13,9 @@ turn_on:
   fields:
     member_id:
       name: Member ID
-      description: Numeric Fabman member ID. Cannot be combined with email address.
+      description: >-
+        Numeric Fabman member ID. Used only without an authenticated Home
+        Assistant user context.
       example: 12345
       selector:
         number:
@@ -21,7 +25,9 @@ turn_on:
           step: 1
     email_address:
       name: Email address
-      description: Exact Fabman member email address. Cannot be combined with member ID.
+      description: >-
+        Exact Fabman member email address. Used only without an authenticated
+        Home Assistant user context.
       example: member@example.com
       selector:
         text:

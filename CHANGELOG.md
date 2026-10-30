@@ -1,20 +1,27 @@
 # Unreleased
 
-- End unconfirmed switch assumptions after 30 seconds independently of polling.
-- Keep timed-out command activity unknown with `command_timeout` and a persistent
-  notification; recover on a later matching observation without replaying commands.
-- Cancel command deadlines on confirmation, replacement, removal or unload;
-  preserve API failure availability and never automatically retry or switch off.
+# v0.3.0b3 (beta)
 
-- Discover read-only `checkIn` terminals with bridge Connectivity only.
-- Add one space attendance service device with a Checked-in members sensor and
-  Check-in activity event entity, including the affected Fabman member.
-- Rebuild current attendance from complete active-session snapshots; count each
-  member once per space even when multiple terminal sessions remain open.
-- Catch short visits between polls and completion of long-open sessions; suppress
-  initial history replay and repeated events, and isolate attendance read errors.
-- Disable existing controls when a resource changes to a read-only terminal type.
-- Document attendance attributes, event semantics, polling, recovery and limitations.
+- Add read-only check-in attendance from complete active-session snapshots, with a
+  space-level roster and check-in/check-out activity events.
+- Add optional Home Assistant user to Fabman member mappings in the integration
+  options; accept a member ID or exact email and store the resolved member ID.
+- Attribute activations from mapped users to their configured Fabman member; leave
+  unmapped and context-free activations with the API-key member by default.
+- Add per-resource activation events and latest-actor sensor attributes, including
+  assignment outcome.
+- Carry the bounded command-confirmation timeout behavior from v0.3.0b2.
+
+See [v0.3.0b3 beta notes](docs/releases/v0.3.0b3.md).
+
+# v0.3.0b2 (beta)
+
+- End unconfirmed command assumptions after 30 seconds, independent of polling.
+- Keep timed-out activity unknown, notify persistently, and recover only on a later
+  matching observation; do not retry or reverse commands automatically.
+- Cancel command deadlines on confirmation, replacement, removal or unload.
+
+See [v0.3.0b2 beta notes](docs/releases/v0.3.0b2.md).
 
 # v0.3.0b1 (beta)
 

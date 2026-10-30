@@ -2,7 +2,7 @@ name: Validate
 
 on:
   push:
-    branches: [main, codex/activity-migration-foundation]
+    branches: [main, codex/activity-migration-foundation, codex/pos-nuki-beta]
   pull_request:
   workflow_dispatch:
 
@@ -30,6 +30,13 @@ jobs:
         run: python -m pytest -q
       - name: Check Python code
         run: python -m ruff check --isolated --select E4,E7,E9,F custom_components tests
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Validate Home Assistant metadata
+        uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master
 
   hacs:
     runs-on: ubuntu-latest

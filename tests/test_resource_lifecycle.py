@@ -47,7 +47,11 @@ async def test_member_action_routes_to_fabman_switch(runtime, coordinator, hass)
             {"entity_id": entity.entity_id, "email_address": "member@example.com"},
             blocking=True,
         )
-        turn_on.assert_awaited_once_with(email_address="member@example.com")
+        turn_on.assert_awaited_once_with(
+            member_id=None,
+            email_address="member@example.com",
+            user_id=None,
+        )
 
 
 @pytest.fixture
@@ -141,13 +145,13 @@ async def test_new_resources_appear_once_on_all_platforms_without_reload(
 ):
     coordinator.async_set_updated_data({1: machine()})
     await runtime.setup()
-    assert len(runtime.entities()) == 4
+    assert len(runtime.entities()) == 5
     coordinator.async_set_updated_data(
         {1: machine(), 2: {**machine(2), "state": state}}
     )
     await runtime.flush()
     entities = runtime.entities()
-    assert len(entities) == 8
+    assert len(entities) == 10
     assert len({e.registry_entry.device_id for e in entities.values()}) == 2
     coordinator.async_set_updated_data({1: machine(), 2: machine(2)})
     await runtime.flush()
@@ -168,7 +172,7 @@ async def test_inactive_resources_survive_reload_and_reactivation_with_same_ids(
     never_used_here = {**machine(2), "state": state}
     coordinator.async_set_updated_data({1: inactive, 2: never_used_here})
     await runtime.flush()
-    assert len(runtime.entities()) == 4
+    assert len(runtime.entities()) == 5
     assert all(
         hass.states.get(e.entity_id).state == "unavailable"
         for e in runtime.entities().values()
@@ -176,6 +180,7 @@ async def test_inactive_resources_survive_reload_and_reactivation_with_same_ids(
     assert all(
         e.extra_state_attributes["resource_state"] == state
         for e in runtime.entities().values()
+        if e.extra_state_attributes is not None
     )
     target = next(
         e for e in runtime.entities().values() if isinstance(e, switch.FabmanSwitch)
@@ -186,7 +191,7 @@ async def test_inactive_resources_survive_reload_and_reactivation_with_same_ids(
         session.assert_not_called()
     await runtime.reset()
     await runtime.setup()
-    assert len(runtime.entities()) == 4
+    assert len(runtime.entities()) == 5
     assert all(not e.available for e in runtime.entities().values())
     coordinator.async_set_updated_data({1: machine()})
     await runtime.flush()
@@ -255,7 +260,7 @@ async def test_api_failure_does_not_discover_or_delete_and_recovery_adds_new(
     ):
         await coordinator.async_refresh()
     await runtime.flush()
-    assert len(runtime.entities()) == 8
+    assert len(runtime.entities()) == 10
 
 
 @pytest.mark.parametrize(
@@ -329,7 +334,7 @@ async def test_manually_removed_archived_device_stays_removed_until_reactivation
     assert not runtime.entities()
     coordinator.async_set_updated_data({1: machine()})
     await runtime.flush()
-    assert len(runtime.entities()) == 4
+    assert len(runtime.entities()) == 5
 
 
 async def test_archiving_drops_pending_command_and_door_timer(coordinator):
@@ -364,10 +369,10 @@ async def test_resource_without_bridge_is_discovered_when_bridge_is_added(
     unsupported = {**machine(2), "_embedded": {}}
     coordinator.async_set_updated_data({1: machine(), 2: unsupported})
     await runtime.setup()
-    assert len(runtime.entities()) == 4
+    assert len(runtime.entities()) == 5
     coordinator.async_set_updated_data({1: machine(), 2: machine(2)})
     await runtime.flush()
-    assert len(runtime.entities()) == 8
+    assert len(runtime.entities()) == 10
 
 
 async def test_disabled_entity_is_not_rediscovered_and_manual_cleanup_is_respected(
@@ -399,7 +404,7 @@ async def test_disabled_entity_is_not_rediscovered_and_manual_cleanup_is_respect
     await runtime.flush()
     # HA may retain the user's disabled preference in its deleted-entry cache.
     entries = er.async_entries_for_config_entry(runtime.registry, "first")
-    assert len(entries) == 4
+    assert len(entries) == 5
 
 
 async def test_expired_door_acknowledgement_publishes_off_in_ha(
@@ -430,7 +435,9 @@ async def test_expired_door_acknowledgement_publishes_off_in_ha(
     await runtime.flush()
     for entity in entities.values():
         expected = (
-            "on"
+            "unknown"
+            if isinstance(entity, event.FabmanActivationEvent)
+            else "on"
             if isinstance(entity, binary_sensor.FabmanConnectivitySensor)
             else "off"
         )
@@ -511,7 +518,7 @@ async def test_nuki_entities_separate_access_from_lock_and_battery_state(
         for entity in entities.values()
         if isinstance(entity, binary_sensor.FabmanActivitySensor)
     )
-    assert len(entities) == 6
+    assert len(entities) == 7
     assert lock_sensor.is_on is False
     assert battery.native_value == 80
     assert hass.states.get(activity.entity_id).state == "on"

@@ -121,6 +121,9 @@ class FabmanSensor(FabmanEntity, SensorEntity):
         if not isinstance(last_used, dict):
             last_used = {}
         activity = self.coordinator.activity(self._resource_id)
+        last_activation = self.coordinator.last_activations.get(self._resource_id, {})
+        if not isinstance(last_activation, dict):
+            last_activation = {}
         return {
             "resource_id": self._resource_id,
             "resource_state": self.resource_state,
@@ -130,6 +133,19 @@ class FabmanSensor(FabmanEntity, SensorEntity):
             "stop_type": last_used.get("stopType", "None"),
             "resource_type": self.resource.get("controlType"),
             "max_offline_usage": self.resource.get("maxOfflineUsage", 0),
+            "last_activation_at": last_activation.get("occurred_at"),
+            "last_activation_ha_user_id": last_activation.get("ha_user_id"),
+            "last_activation_ha_user_name": last_activation.get("ha_user_name"),
+            "last_activation_attribution": last_activation.get("attribution"),
+            "last_activation_assignment_status": last_activation.get(
+                "assignment_status"
+            ),
+            "last_activation_requested_member_id": last_activation.get(
+                "requested_member_id"
+            ),
+            "last_activation_assigned_member_id": last_activation.get(
+                "assigned_member_id"
+            ),
         }
 
 

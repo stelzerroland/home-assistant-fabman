@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Fabman",
+        "data": {
+          "api_token": "API token",
+          "api_url": "API URL",
+          "enable_periodic_sync": "Enable periodic synchronization",
+          "poll_interval": "Synchronization interval"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fabman user mappings",
+        "description": "Current mappings:\n{mappings}",
+        "menu_options": {
+          "add_mapping": "Add or update a mapping",
+          "remove_mapping": "Remove a mapping"
+        }
+      },
+      "add_mapping": {
+        "title": "Map a Home Assistant user",
+        "description": "Enter a Fabman member ID or exact email address. Email addresses are resolved to a member ID before saving.",
+        "data": {
+          "ha_user": "Home Assistant user",
+          "fabman_member": "Fabman member ID or email"
+        }
+      },
+      "remove_mapping": {
+        "title": "Remove a Home Assistant user mapping",
+        "data": {
+          "ha_user": "Mapping to remove"
+        }
+      }
+    },
+    "error": {
+      "invalid_user": "Choose an active Home Assistant user.",
+      "invalid_member_format": "Enter a positive numeric member ID or an email address.",
+      "invalid_member": "The Fabman member was not found in this Fabman account.",
+      "integration_unavailable": "The Fabman integration is not currently available.",
+      "account_unavailable": "No Fabman account could be determined from the resources.",
+      "member_lookup_failed": "Fabman could not verify the member. Check the API connection and try again."
+    },
+    "abort": {
+      "no_users": "There are no active Home Assistant users available to map.",
+      "no_mappings": "There are no mappings to remove."
+    }
+  }
+}

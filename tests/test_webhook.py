@@ -17,7 +17,7 @@ from custom_components.fabman.const import DOMAIN
 
 
 def entry(entry_id):
-    return SimpleNamespace(entry_id=entry_id, data={"api_token": "test"})
+    return SimpleNamespace(entry_id=entry_id, data={"api_token": "test"}, options={})
 
 
 def fake_coordinator():

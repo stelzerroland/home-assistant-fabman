@@ -6,11 +6,21 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service import async_register_platform_entity_service
+from homeassistant.util import dt as dt_util
 
 from .assignment import MemberAssignment, positive_id
 from .const import DOMAIN
 from .entity import FabmanEntity
 from .lifecycle import async_setup_discovery
+
+
+async def _async_turn_on_service(entity, call):
+    """Pass the authenticated caller and optional legacy target to the switch."""
+    await entity.async_turn_on_for_member(
+        member_id=call.data.get("member_id"),
+        email_address=call.data.get("email_address"),
+        user_id=call.context.user_id,
+    )
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -30,7 +40,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     str, vol.Length(min=3, max=255)
                 ),
             },
-            func="async_turn_on_for_member",
+            func=_async_turn_on_service,
         )
     async_setup_discovery(
         hass,
@@ -102,30 +112,89 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
         }
 
     async def async_turn_on(self, **kwargs):
-        await self._set_machine_status(True)
+        # HA sets _context immediately before invoking an entity service.
+        context = getattr(self, "_context", None)
+        await self.async_turn_on_for_member(
+            user_id=getattr(context, "user_id", None)
+        )
 
     async def async_turn_off(self, **kwargs):
         # A pending attribution must never delay an explicit stop request.
         await self._async_send_command(False)
 
-    async def _set_machine_status(self, is_on):
-        async with self.coordinator.command_locks[self._resource_id]:
-            await self._async_send_command(is_on)
+    async def async_turn_on_for_member(
+        self, member_id=None, email_address=None, user_id=None
+    ):
+        """Activate and assign only for a mapped caller or explicit context-free call."""
+        if user_id is not None:
+            mapped_member_id = self.coordinator.user_member_map.get(user_id)
+            if mapped_member_id is None:
+                attribution = "api_key_user"
+                target_kind = None
+            else:
+                attribution = "ha_user_mapping"
+                target_kind = "mapped"
+        elif member_id is not None or email_address is not None:
+            attribution = "explicit_member"
+            target_kind = "explicit"
+        else:
+            attribution = "api_key_user"
+            target_kind = None
 
-    async def async_turn_on_for_member(self, member_id=None, email_address=None):
-        """Activate normally, optionally reassign the resulting usage."""
-        if member_id is None and email_address is None:
-            await self.async_turn_on()
-            return
+        user = None
+        if user_id is not None:
+            try:
+                user = await self.coordinator.hass.auth.async_get_user(user_id)
+            except Exception:
+                user = None
+        actor = {
+            "ha_user_id": user_id,
+            "ha_user_name": (
+                user.name
+                if user is not None and user.name
+                else (
+                    "Unknown Home Assistant user"
+                    if user_id is not None
+                    else "Home Assistant automation/service"
+                )
+            ),
+            "attribution": attribution,
+        }
+
         async with self.coordinator.command_locks[self._resource_id]:
             if not self.available:
                 raise HomeAssistantError("Fabman resource is unavailable")
+
+            if target_kind is None:
+                await self._async_send_command(True)
+                activation_time = dt_util.utcnow().isoformat()
+                self.coordinator.async_note_activation(
+                    self._resource_id,
+                    {
+                        **actor,
+                        "occurred_at": activation_time,
+                        "assignment_status": "not_requested",
+                        "requested_member_id": None,
+                        "assigned_member_id": None,
+                    },
+                )
+                return
+
             assignment = MemberAssignment(
                 async_get_clientsession(self.coordinator.hass),
                 self.coordinator,
                 self._resource_id,
             )
-            member = await assignment.resolve_member(member_id, email_address)
+            if target_kind == "mapped":
+                resolved_member_id = await assignment.resolve_member(
+                    member_id=mapped_member_id
+                )
+            else:
+                resolved_member_id = await assignment.resolve_member(
+                    member_id=member_id,
+                    email_address=email_address,
+                )
+
             # Read a fresh baseline; do not attribute an already-running session.
             resource = await assignment.request("GET", f"resources/{self._resource_id}")
             if (
@@ -149,15 +218,36 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 raise HomeAssistantError("Fabman usage is active or cannot be verified")
             baseline_id = usage.get("id") if usage else None
             command = await self._async_send_command(True, read_command=True)
+            activation_time = dt_util.utcnow().isoformat()
             try:
-                await assignment.assign(command, member, baseline_id)
+                await assignment.assign(command, resolved_member_id, baseline_id)
             except (HomeAssistantError, TimeoutError):
+                self.coordinator.async_note_activation(
+                    self._resource_id,
+                    {
+                        **actor,
+                        "occurred_at": activation_time,
+                        "assignment_status": "failed",
+                        "requested_member_id": resolved_member_id,
+                        "assigned_member_id": None,
+                    },
+                )
                 # Activation is never repeated or reversed on an attribution error.
                 raise HomeAssistantError(
                     "Fabman activation was accepted, but member assignment could not "
                     "be confirmed. The resource may be on; check its activity log. "
                     "Do not repeat activation just to retry assignment."
                 ) from None
+            self.coordinator.async_note_activation(
+                self._resource_id,
+                {
+                    **actor,
+                    "occurred_at": activation_time,
+                    "assignment_status": "assigned",
+                    "requested_member_id": resolved_member_id,
+                    "assigned_member_id": resolved_member_id,
+                },
+            )
             await self.coordinator.async_request_refresh()
 
     async def _async_send_command(self, is_on, *, read_command=False):
