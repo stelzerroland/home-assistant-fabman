@@ -60,20 +60,35 @@ class MemberAssignment:
             if not isinstance(email_address, str) or not email_address.strip():
                 raise ServiceValidationError("Invalid Fabman email_address")
             email = email_address.strip().casefold()
-            # Fetch at most two results: truncated or ambiguous searches fail closed.
+            # Fabman's q search is full-text and can include unrelated members.
+            # Filter a bounded result set locally using the exact email.
+            result_limit = 100
             matches = await self.request(
                 "GET",
                 "members",
-                params={"account": self.account, "q": email, "limit": 2},
+                params={
+                    "account": self.account,
+                    "q": email,
+                    "limit": result_limit,
+                },
             )
-            if not isinstance(matches, list) or len(matches) != 1:
-                raise ServiceValidationError("Fabman email search is not unique")
-            member = matches[0]
             if (
-                not isinstance(member, dict)
-                or str(member.get("emailAddress", "")).casefold() != email
+                not isinstance(matches, list)
+                or len(matches) >= result_limit
             ):
-                raise ServiceValidationError("No exact Fabman email match")
+                raise ServiceValidationError(
+                    "Fabman email search is incomplete or ambiguous"
+                )
+            exact_matches = [
+                candidate
+                for candidate in matches
+                if isinstance(candidate, dict)
+                and isinstance(candidate.get("emailAddress"), str)
+                and candidate["emailAddress"].strip().casefold() == email
+            ]
+            if len(exact_matches) != 1:
+                raise ServiceValidationError("Fabman email search is not unique")
+            member = exact_matches[0]
         if (
             not isinstance(member, dict)
             or not positive_id(member.get("id"))

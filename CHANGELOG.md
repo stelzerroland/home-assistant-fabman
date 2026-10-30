@@ -1,5 +1,11 @@
 # Unreleased
 
+# v0.3.0b4 (beta)
+
+- Fix email-based Home Assistant user mappings by filtering Fabman's full-text member search for a unique exact email.
+
+See [v0.3.0b4 beta notes](docs/releases/v0.3.0b4.md).
+
 # v0.3.0b3 (beta)
 
 - Add read-only check-in attendance from complete active-session snapshots, with a
