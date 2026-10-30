@@ -14,6 +14,10 @@ class FabmanAuthenticationError(FabmanAPIError):
     """The API rejected the credentials or resource access."""
 
 
+class FabmanNotFoundError(FabmanAPIError):
+    """An individually requested record no longer exists."""
+
+
 class FabmanRateLimitError(FabmanAPIError):
     """The API asked the client to slow down."""
 
@@ -149,6 +153,78 @@ class FabmanAPI:
             f"spaces/{space_id}/integrations/nuki/devices", {}
         )
 
+    async def get_check_in_logs(
+        self, account_id, space_id, *, status="active", from_time=None
+    ):
+        """Read all matching attendance sessions, including resolved member names."""
+        for value in (account_id, space_id):
+            if type(value) is not int or value <= 0:
+                raise FabmanAPIError("Invalid Fabman attendance scope")
+        if status not in ("active", "all"):
+            raise FabmanAPIError("Invalid Fabman attendance status")
+        params = {
+            "account": account_id,
+            "space": space_id,
+            "type": "checkIn",
+            "status": status,
+            "resolve": "member",
+            "order": "asc",
+            "limit": 100,
+        }
+        if from_time is not None:
+            if not isinstance(from_time, str) or not from_time:
+                raise FabmanAPIError("Invalid Fabman attendance timestamp")
+            params["from"] = from_time
+        return await self._get_collection("resource-logs", params)
+
+    async def get_check_in_log(self, log_id):
+        """Re-read a previously open session; its creation may be long ago."""
+        return await self._get_object("resource-logs", log_id, "resolve=member")
+
+    async def get_space(self, space_id):
+        """Read a space label for its attendance service device."""
+        return await self._get_object("spaces", space_id)
+
+    async def _get_object(self, endpoint, identifier, query=""):
+        if type(identifier) is not int or identifier <= 0:
+            raise FabmanAPIError("Invalid Fabman object ID")
+        url = f"{self._base_url}/{endpoint}/{identifier}"
+        if query:
+            url = f"{url}?{query}"
+        try:
+            async with self._session.get(
+                url,
+                headers=self._headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+                allow_redirects=False,
+            ) as response:
+                if response.status in (401, 403):
+                    raise FabmanAuthenticationError("Fabman object access denied")
+                if response.status == 404:
+                    raise FabmanNotFoundError("Fabman object no longer exists")
+                if response.status == 429:
+                    try:
+                        delay = float(response.headers.get("Retry-After", 2))
+                        if not math.isfinite(delay):
+                            delay = 2
+                    except (TypeError, ValueError):
+                        delay = 2
+                    raise FabmanRateLimitError(max(2, delay))
+                if response.status != 200:
+                    raise FabmanAPIError(
+                        f"Fabman object request failed: HTTP {response.status}"
+                    )
+                data = await response.json()
+                if (
+                    not isinstance(data, dict)
+                    or type(data.get("id")) is not int
+                    or data["id"] != identifier
+                ):
+                    raise FabmanAPIError("Invalid Fabman object response")
+                return data
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            raise FabmanAPIError("Fabman object request or response failed") from None
+
     async def _get_collection(self, endpoint, params):
         """Fetch a paginated list while preserving its filters and origin."""
         query_string = urlencode(params)
@@ -202,7 +278,9 @@ class FabmanAPI:
                         try:
                             count = int(count)
                         except (TypeError, ValueError):
-                            raise FabmanAPIError("Invalid Fabman collection count") from None
+                            raise FabmanAPIError(
+                                "Invalid Fabman collection count"
+                            ) from None
                         if count < 0 or (
                             expected_count is not None and count != expected_count
                         ):
@@ -216,7 +294,8 @@ class FabmanAPI:
                         for key, value in params.items():
                             expected = str(value)
                             existing = [
-                                current for current_key, current in query
+                                current
+                                for current_key, current in query
                                 if current_key == key
                             ]
                             if existing and any(
@@ -231,5 +310,7 @@ class FabmanAPI:
             if expected_count is not None and expected_count != len(items):
                 raise FabmanAPIError("Incomplete Fabman collection")
         except (aiohttp.ClientError, TimeoutError, ValueError):
-            raise FabmanAPIError("Fabman collection request or response failed") from None
+            raise FabmanAPIError(
+                "Fabman collection request or response failed"
+            ) from None
         return items

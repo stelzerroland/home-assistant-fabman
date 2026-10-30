@@ -74,9 +74,21 @@ over a stored activity value when Home Assistant publishes an entity state.
 | Same door at or after `lastUsed.at + maxOfflineUsage` | `off` | `door_release_expired` |
 | Door with invalid/unknown duration or grant timestamp | `unknown` | `invalid_door_release_window` |
 | Accepted command not confirmed by matching API usage | `unknown` | `command_unconfirmed` |
+| No matching confirmation within 30 seconds of an accepted command | `unknown` | `command_timeout`; assumed switch state ends, persistent HA notification |
 | API/HTTP/JSON/whole-snapshot failure, or resource absent from a complete snapshot | `unavailable` | Coordinator/resource availability |
 
 Both timestamps must carry a timezone; offsets are compared as absolute instants.
+
+The command deadline uses an independent event-loop timer, including with periodic
+sync disabled or failed API reads. It never retries a command, sends a stop, cancels
+a server-side command, or substitutes an old observed off state. Expired requests
+retain their original confirmation baseline so later matching observations can
+clear the error and its notification. An unchanged snapshot cannot extend the
+deadline or falsely recover an expired opening. Fresh late observations remain
+eligible even if their read was already in flight at timeout. Replacing a command
+cancels the older local timer; removed/inactive resources and entry unload also
+clean up command tracking. This state is in memory, not persisted across reloads.
+
 No arbitrary maximum usage age is imposed on a long-running machine. A
 session-derived `off` describes the API-reported ended session, not a separately
 verified current hardware state. The bridge must additionally be explicitly

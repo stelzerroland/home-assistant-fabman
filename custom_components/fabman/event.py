@@ -6,28 +6,67 @@ from homeassistant.core import callback
 from .const import DOMAIN
 from .entity import FabmanEntity
 from .lifecycle import async_setup_discovery
+from .presence import FabmanSpaceEntity, async_setup_space_discovery
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up one read-only authorization event entity per POS resource."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    async_setup_space_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        "event",
+        FabmanCheckInActivityEvent,
+        async_add_entities,
+    )
     async_setup_discovery(
         hass,
         config_entry,
         coordinator,
         "event",
-        (lambda resource_id, resource: FabmanPOSEvent(
-            coordinator, resource_id, config_entry.entry_id
-        ),),
+        (
+            lambda resource_id, resource: FabmanPOSEvent(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+        ),
         async_add_entities,
         resource_filter=lambda resource: resource.get("controlType") == "pos",
     )
+
+
+class FabmanCheckInActivityEvent(FabmanSpaceEntity, EventEntity):
+    """Attendance transitions with the affected Fabman member, scoped to a space."""
+
+    _attr_name = "Check-in activity"
+    _attr_event_types = ["checked_in", "checked_out"]
+    _attr_icon = "mdi:account-arrow-right"
+
+    def __init__(self, coordinator, scope, entry_id):
+        super().__init__(coordinator, scope, entry_id, "check_in_activity")
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.presence.add_listener(self.scope, self._event)
+        )
+
+    @callback
+    def _event(self, event):
+        if not self.available:
+            return
+        self._trigger_event(
+            event["event_type"],
+            {key: value for key, value in event.items() if key != "event_type"},
+        )
+        self.async_write_ha_state()
 
 
 class FabmanPOSEvent(FabmanEntity, EventEntity):
     """Fire an event when Fabman records an allowed POS authorization."""
 
     _attr_has_entity_name = True
+    _supported_control_types = ("pos",)
     _attr_name = "Authorization"
     _attr_event_types = ["authorized"]
 

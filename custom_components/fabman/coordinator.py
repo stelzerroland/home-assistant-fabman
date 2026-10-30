@@ -6,6 +6,7 @@ from asyncio import Lock
 from dataclasses import dataclass
 from datetime import timedelta
 
+from homeassistant.components import persistent_notification
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
@@ -28,8 +29,10 @@ from .const import (
 from .helpers import get_door_close_time, is_supported_resource
 from .lifecycle import resource_is_current
 from .nuki import normalized_identifier, device_identifier
+from .presence import PresenceTracker
 
 _LOGGER = logging.getLogger(__name__)
+COMMAND_CONFIRMATION_TIMEOUT = 30
 
 
 def _aware_timestamp(value):
@@ -79,14 +82,18 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self._session = async_get_clientsession(hass)
         self._door_timers = {}
         self._refresh_timers = {}
+        self._command_timeout_timers = {}
         self._unloaded = False
         self._revision = 0
         self._retry_not_before = 0
         self.pending_commands = {}
+        self.timed_out_commands = {}
+        self._entry_id = entry_id or "default"
         self.command_locks = defaultdict(Lock)
         self._assigned_door_grants = {}
         self._nuki_devices_by_space = {}
         self._nuki_failed_spaces = set()
+        self.presence = PresenceTracker()
         self._pos_event_listeners = defaultdict(set)
         self._pending_pos_events = defaultdict(list)
         self._pos_cursors = {}
@@ -145,6 +152,11 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             pos_events, pos_cursors, pos_seen_ids = await self._fetch_pos_events(
                 api, new_data
             )
+            (
+                presence_states,
+                presence_events,
+                presence_failures,
+            ) = await self.presence.async_prepare(api, new_data, dt_util.utcnow())
         except Exception as err:
             if isinstance(err, FabmanRateLimitError):
                 self._retry_not_before = self.hass.loop.time() + err.retry_after
@@ -162,9 +174,24 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self._nuki_failed_spaces = nuki_failed_spaces
         self._pos_cursors = pos_cursors
         self._pos_seen_ids = defaultdict(set, pos_seen_ids)
+        accepted_revision = self._revision
         await self._async_save_pos_cursors()
+        if self._unloaded or accepted_revision != self._revision:
+            return self._discard_outdated_snapshot()
         for event in pos_events:
             self._dispatch_pos_event(event)
+        self.presence.spaces = presence_states
+        for scope, error in presence_failures:
+            if isinstance(error, FabmanRateLimitError):
+                self._retry_not_before = max(
+                    self._retry_not_before, self.hass.loop.time() + error.retry_after
+                )
+            _LOGGER.warning(
+                "Fabman attendance read failed for space %s: %s", scope[1], error
+            )
+        for event in presence_events:
+            # Deliver after the accepted coordinator snapshot and discovery update.
+            self.hass.loop.call_soon(self.presence.dispatch, event)
         self.last_successful_fetch = dt_util.utcnow()
         self.resource_count = len(resources)
         self.invalid_resource_count = invalid_count
@@ -172,8 +199,15 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self.supported_resource_count = sum(
             is_supported_resource(resource) for resource in new_data.values()
         )
-        for resource_id, command in list(self.pending_commands.items()):
-            resource = new_data.get(resource_id)
+        self._reconcile_commands(new_data)
+        self._schedule_door_updates(new_data)
+        return new_data
+
+    def _reconcile_commands(self, resources):
+        """Clear pending or expired requests only on matching observations."""
+        commands = {**self.timed_out_commands, **self.pending_commands}
+        for resource_id, command in commands.items():
+            resource = resources.get(resource_id)
             observed = evaluate_activity(self._activity_resource(resource_id, resource))
             matches = resource is not None and observed.is_on is command.is_on
             if (
@@ -203,10 +237,54 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
                         )
                     else:
                         matches = usage["at"] != command.previous_door_grant
-            if resource is None or not resource_is_current(resource) or matches:
-                self.pending_commands.pop(resource_id)
-        self._schedule_door_updates(new_data)
-        return new_data
+            if (
+                resource is None
+                or not resource_is_current(resource)
+                or matches
+                or resource.get("controlType") not in ("machine", "door", "nuki")
+            ):
+                self._clear_command(resource_id)
+
+    def _clear_command(self, resource_id):
+        self.pending_commands.pop(resource_id, None)
+        self.timed_out_commands.pop(resource_id, None)
+        timer = self._command_timeout_timers.pop(resource_id, None)
+        if timer is not None:
+            timer.cancel()
+        persistent_notification.async_dismiss(
+            self.hass, self._command_notification_id(resource_id)
+        )
+
+    def _command_notification_id(self, resource_id):
+        return f"fabman_{self._entry_id}_command_timeout_{resource_id}"
+
+    @callback
+    def _command_timed_out(self, resource_id, command):
+        """End optimistic waiting without inventing an observed state or retrying."""
+        if self._unloaded or self.pending_commands.get(resource_id) is not command:
+            return
+        timer = self._command_timeout_timers.pop(resource_id, None)
+        if timer is not None:
+            timer.cancel()
+        self.pending_commands.pop(resource_id)
+        self.timed_out_commands[resource_id] = command
+        _LOGGER.warning(
+            "Fabman command for resource %s was not confirmed within %s seconds; "
+            "state remains unknown and no command was retried or cancelled",
+            resource_id,
+            COMMAND_CONFIRMATION_TIMEOUT,
+        )
+        persistent_notification.async_create(
+            self.hass,
+            f"The command for Fabman resource {resource_id} was not confirmed "
+            f"within {COMMAND_CONFIRMATION_TIMEOUT} seconds. Its state is unknown. "
+            "No automatic retry or switch-off was sent. This local timeout does "
+            "not cancel a command still pending at Fabman; check before retrying.",
+            title="Fabman command not confirmed",
+            notification_id=self._command_notification_id(resource_id),
+        )
+        # Keep any current API read: a later matching snapshot can still confirm it.
+        self.async_update_listeners()
 
     def _discard_outdated_snapshot(self):
         """Keep newer data/command barriers and coalesce a follow-up read."""
@@ -222,6 +300,8 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             return Activity(None, "resource_inactive_or_missing", "fabman_resource")
         if resource_id in self.pending_commands:
             return Activity(None, "command_unconfirmed", "bridge_command")
+        if resource_id in self.timed_out_commands:
+            return Activity(None, "command_timeout", "bridge_command")
         return evaluate_activity(self._activity_resource(resource_id, resource))
 
     def _activity_resource(self, resource_id, resource):
@@ -240,10 +320,9 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
 
     def async_note_assigned_door_grant(self, resource_id, log):
         """Retain the verified original grant time before changing its member."""
-        if (
-            self._unloaded
-            or self.data.get(resource_id, {}).get("controlType")
-            not in ("door", "nuki")
+        if self._unloaded or self.data.get(resource_id, {}).get("controlType") not in (
+            "door",
+            "nuki",
         ):
             return
         self._assigned_door_grants[resource_id] = (log["id"], log["createdAt"])
@@ -257,6 +336,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             return
         self._revision += 1
         self.inventory_complete = False
+        self._reconcile_commands(data)
         self._schedule_door_updates(data)
         super().async_set_updated_data(data)
 
@@ -316,8 +396,11 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             and type(usage.get("id")) is int
             else None
         )
-        self.pending_commands[resource_id] = PendingCommand(
-            is_on, previous_grant, previous_usage_id
+        self._clear_command(resource_id)
+        command = PendingCommand(is_on, previous_grant, previous_usage_id)
+        self.pending_commands[resource_id] = command
+        self._command_timeout_timers[resource_id] = self.hass.loop.call_later(
+            COMMAND_CONFIRMATION_TIMEOUT, self._command_timed_out, resource_id, command
         )
         self.async_update_listeners()
         self.async_schedule_refresh(resource_id)
@@ -342,10 +425,16 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         """Cancel callbacks when this entry is unloaded or setup fails."""
         self._unloaded = True
         self.pending_commands.clear()
+        self.timed_out_commands.clear()
         self._assigned_door_grants.clear()
         self._pos_event_listeners.clear()
         self._pending_pos_events.clear()
-        for timers in (self._door_timers, self._refresh_timers):
+        self.presence.close()
+        for timers in (
+            self._door_timers,
+            self._refresh_timers,
+            self._command_timeout_timers,
+        ):
             for timer in timers.values():
                 timer.cancel()
             timers.clear()
@@ -356,7 +445,9 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         key = _numeric_id(space_id)
         if key is None:
             return False
-        return key in self._nuki_devices_by_space and key not in self._nuki_failed_spaces
+        return (
+            key in self._nuki_devices_by_space and key not in self._nuki_failed_spaces
+        )
 
     def nuki_device(self, resource):
         """Find the Nuki status record linked to one Fabman resource."""
@@ -425,9 +516,9 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
                     "resources": {
                         resource_id: {
                             "cursor": cursor.isoformat(),
-                            "seen": sorted(
-                                self._pos_seen_ids.get(resource_id, set())
-                            )[-2000:],
+                            "seen": sorted(self._pos_seen_ids.get(resource_id, set()))[
+                                -2000:
+                            ],
                         }
                         for resource_id, cursor in self._pos_cursors.items()
                     }

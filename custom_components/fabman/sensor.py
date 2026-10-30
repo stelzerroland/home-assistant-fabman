@@ -10,11 +10,20 @@ from .const import DOMAIN
 from .entity import FabmanEntity
 from .lifecycle import async_setup_discovery
 from .nuki import battery_level
+from .presence import FabmanSpaceEntity, async_setup_space_discovery
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up supported resources discovered during entry setup."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    async_setup_space_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        "sensor",
+        FabmanCheckedInMembersSensor,
+        async_add_entities,
+    )
     async_setup_discovery(
         hass,
         config_entry,
@@ -30,24 +39,56 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ),
         ),
         async_add_entities,
-        resource_filter=lambda resource: resource.get("controlType")
-        in ("machine", "door", "nuki"),
+        resource_filter=lambda resource: (
+            resource.get("controlType") in ("machine", "door", "nuki")
+        ),
     )
     async_setup_discovery(
         hass,
         config_entry,
         coordinator,
         "sensor",
-        (lambda resource_id, resource: FabmanNukiBatterySensor(
-            coordinator, resource_id, config_entry.entry_id
-        ),),
+        (
+            lambda resource_id, resource: FabmanNukiBatterySensor(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+        ),
         async_add_entities,
         resource_filter=lambda resource: resource.get("controlType") == "nuki",
     )
 
 
+class FabmanCheckedInMembersSensor(FabmanSpaceEntity, SensorEntity):
+    """Current API-reported membership, deduplicated across terminals in a space."""
+
+    _attr_name = "Checked-in members"
+    _attr_icon = "mdi:account-group"
+
+    def __init__(self, coordinator, scope, entry_id):
+        super().__init__(coordinator, scope, entry_id, "checked_in_members")
+
+    @property
+    def native_value(self):
+        return len(self.snapshot.members) if self.available else None
+
+    @property
+    def extra_state_attributes(self):
+        state = self.snapshot
+        return {
+            "account_id": self.scope[0],
+            "space_id": self.scope[1],
+            "members": state.members if state is not None else [],
+            "active_sessions": len(state.sessions) if state is not None else None,
+            "last_successful_sync": state.last_successful_sync.isoformat()
+            if state is not None and state.last_successful_sync is not None
+            else None,
+        }
+
+
 class FabmanSensor(FabmanEntity, SensorEntity):
     """Expose the existing on/off status without numeric measurement metadata."""
+
+    _supported_control_types = ("machine", "door", "nuki")
 
     def __init__(self, coordinator, resource_id, name, control_type, max_offline_usage):
         super().__init__(coordinator, resource_id)
@@ -96,6 +137,7 @@ class FabmanNukiBatterySensor(FabmanEntity, SensorEntity):
     """Expose the Nuki battery percentage provided by Fabman."""
 
     _attr_has_entity_name = True
+    _supported_control_types = ("nuki",)
     _attr_name = "Battery"
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"

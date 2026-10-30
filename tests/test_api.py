@@ -67,6 +67,76 @@ async def test_empty_last_page_is_supported():
         assert len(await api.get_resources()) == 1
 
 
+async def test_attendance_pages_preserve_scope_status_and_member_resolution():
+    offsets = []
+
+    async def handler(request):
+        assert request.method == "GET"
+        assert request.path.endswith("/resource-logs")
+        for key, value in {
+            "account": "42",
+            "space": "5",
+            "type": "checkIn",
+            "status": "all",
+            "resolve": "member",
+            "from": "2026-10-22T08:00:00+00:00",
+        }.items():
+            assert request.query[key] == value
+        offset = int(request.query.get("offset", 0))
+        offsets.append(offset)
+        return web.json_response(
+            [{"id": offset + 1}],
+            headers={
+                "X-Total-Count": "2",
+                **({"Link": '<?offset=1>; rel="next"'} if offset == 0 else {}),
+            },
+        )
+
+    async with fake_api(handler) as api:
+        logs = await api.get_check_in_logs(
+            42, 5, status="all", from_time="2026-10-22T08:00:00+00:00"
+        )
+    assert offsets == [0, 1] and len(logs) == 2
+
+
+async def test_active_attendance_has_no_time_limit_and_resolves_member_names():
+    async def handler(request):
+        assert request.method == "GET"
+        assert request.query["status"] == "active"
+        assert request.query["resolve"] == "member"
+        assert "from" not in request.query and "until" not in request.query
+        return web.json_response([])
+
+    async with fake_api(handler) as api:
+        assert await api.get_check_in_logs(42, 5) == []
+
+
+async def test_attendance_object_reads_are_get_only_and_validate_identity():
+    async def handler(request):
+        assert request.method == "GET"
+        if request.path.endswith("/spaces/5"):
+            return web.json_response({"id": 5, "name": "Space"})
+        assert request.path.endswith("/resource-logs/10")
+        assert request.query["resolve"] == "member"
+        return web.json_response({"id": 10})
+
+    async with fake_api(handler) as api:
+        assert (await api.get_space(5))["id"] == 5
+        assert (await api.get_check_in_log(10))["id"] == 10
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, "1/other", None])
+async def test_attendance_rejects_invalid_identifiers_without_http(value):
+    api = FabmanAPI(Mock(), "https://example.test/api/v1", "synthetic")
+    with pytest.raises(FabmanAPIError):
+        await api.get_check_in_logs(42, value)
+    with pytest.raises(FabmanAPIError):
+        await api.get_check_in_log(value)
+    with pytest.raises(FabmanAPIError):
+        await api.get_space(value)
+    api._session.get.assert_not_called()
+
+
 async def test_second_page_failure_never_returns_partial_list():
     async def handler(request):
         if "offset" in request.query:
@@ -225,7 +295,7 @@ async def test_resource_log_reads_keep_resource_and_authorization_filters():
             headers={
                 "X-Total-Count": "2",
                 "Link": (
-                    '<?offset=1&resource=1515&from=2026-10-22T12%3A00%3A00%2B00%3A00'
+                    "<?offset=1&resource=1515&from=2026-10-22T12%3A00%3A00%2B00%3A00"
                     '&type=allowed&limit=100>; rel="next"'
                 ),
             },

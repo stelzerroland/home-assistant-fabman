@@ -43,8 +43,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ),
         ),
         async_add_entities,
-        resource_filter=lambda resource: resource.get("controlType")
-        in ("machine", "door", "nuki"),
+        resource_filter=lambda resource: (
+            resource.get("controlType") in ("machine", "door", "nuki")
+        ),
     )
 
 
@@ -56,6 +57,14 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
         self._attr_unique_id = f"fabman_switch_{resource_id}"
         self._attr_name = self.resource.get("name", "Unknown")
         self._attr_device_class = "switch"
+
+    @property
+    def available(self):
+        return super().available and self.resource.get("controlType") in (
+            "machine",
+            "door",
+            "nuki",
+        )
 
     @property
     def name(self):
@@ -124,6 +133,7 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 or resource.get("id") != self._resource_id
                 or resource.get("account") != assignment.account
                 or resource.get("state") not in ("active", "locked")
+                or resource.get("controlType") not in ("machine", "door", "nuki")
             ):
                 raise HomeAssistantError("Fabman resource could not be verified")
             usage = resource.get("lastUsed")

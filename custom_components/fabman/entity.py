@@ -10,6 +10,8 @@ from .lifecycle import resource_is_current
 class FabmanEntity(CoordinatorEntity):
     """Keep missing resources unavailable and retain their device identity."""
 
+    _supported_control_types = None
+
     def __init__(self, coordinator, resource_id):
         super().__init__(coordinator)
         self._resource_id = resource_id
@@ -23,8 +25,15 @@ class FabmanEntity(CoordinatorEntity):
 
     @property
     def available(self):
-        return super().available and resource_is_current(
-            (self.coordinator.data or {}).get(self._resource_id)
+        return (
+            super().available
+            and resource_is_current(
+                (self.coordinator.data or {}).get(self._resource_id)
+            )
+            and (
+                self._supported_control_types is None
+                or self.resource.get("controlType") in self._supported_control_types
+            )
         )
 
     @property
@@ -47,12 +56,15 @@ class FabmanEntity(CoordinatorEntity):
             self._attr_device_info = {
                 **self._attr_device_info,
                 "name": f"{self._resource_name} ({self._resource_id})",
+                "model": self.resource.get("controlType", "Unknown"),
             }
             if self.registry_entry and self.registry_entry.device_id:
                 registry = dr.async_get(self.hass)
                 device = registry.async_get(self.registry_entry.device_id)
                 if device:
                     info = self._attr_device_info
-                    if device.name != info["name"]:
-                        registry.async_update_device(device.id, name=info["name"])
+                    if device.name != info["name"] or device.model != info["model"]:
+                        registry.async_update_device(
+                            device.id, name=info["name"], model=info["model"]
+                        )
         super()._handle_coordinator_update()

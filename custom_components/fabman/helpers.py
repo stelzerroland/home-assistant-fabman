@@ -22,7 +22,7 @@ def is_supported_resource(resource):
         return False
     embedded = resource.get("_embedded")
     return (
-        resource.get("controlType") in ("machine", "door", "pos", "nuki")
+        resource.get("controlType") in ("machine", "door", "pos", "nuki", "checkIn")
         and isinstance(embedded, dict)
         and isinstance(embedded.get("bridge"), dict)
         and bool(embedded["bridge"])

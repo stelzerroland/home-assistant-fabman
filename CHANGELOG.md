@@ -1,3 +1,21 @@
+# Unreleased
+
+- End unconfirmed switch assumptions after 30 seconds independently of polling.
+- Keep timed-out command activity unknown with `command_timeout` and a persistent
+  notification; recover on a later matching observation without replaying commands.
+- Cancel command deadlines on confirmation, replacement, removal or unload;
+  preserve API failure availability and never automatically retry or switch off.
+
+- Discover read-only `checkIn` terminals with bridge Connectivity only.
+- Add one space attendance service device with a Checked-in members sensor and
+  Check-in activity event entity, including the affected Fabman member.
+- Rebuild current attendance from complete active-session snapshots; count each
+  member once per space even when multiple terminal sessions remain open.
+- Catch short visits between polls and completion of long-open sessions; suppress
+  initial history replay and repeated events, and isolate attendance read errors.
+- Disable existing controls when a resource changes to a read-only terminal type.
+- Document attendance attributes, event semantics, polling, recovery and limitations.
+
 # v0.3.0b1 (beta)
 
 - Support Nuki resources with the Fabman access switch and timed activity interval.

@@ -2,12 +2,16 @@
 
 Monitor and control Fabman resources from Home Assistant. `machine`, `door` and
 `nuki` resources with a bridge have controls and activity sensors. `pos` resources
-are read-only and report successful authorization events.
+are read-only and report successful authorization events. `checkIn` terminals are
+read-only: they expose bridge connectivity and contribute space-level attendance
+entities with member lists and check-in/check-out events.
 
 The current stable release is **v0.2.0**, incorporating the changes from betas
 b1–b6, including activity/connectivity entities, resource synchronization and
 optional usage member assignment. The **v0.3.0b1 beta** adds read-only POS events
 and Nuki access, lock-state and battery entities for live testing.
+The check-in attendance support described below is implemented in the development
+branch and is **not yet included in a published release**.
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
 limitations are documented below; testing and feedback are welcome.
@@ -17,7 +21,9 @@ no YAML configuration is required. YAML examples below are optional action examp
 
 ## Devices and entities
 
-Each supported resource has one device with these entities:
+Each supported resource has one device with the applicable entities below.
+Check-in terminals have Connectivity only; their shared attendance sensor and
+event entity belong to a separate **Fabman – <space name>** service device.
 
 | Entity | Meaning |
 | --- | --- |
@@ -28,6 +34,8 @@ Each supported resource has one device with these entities:
 | Nuki Lock binary sensor | Current lock state reported by Fabman (`on` means unlocked); transitions and unknown states stay unknown |
 | Nuki Battery sensor | Battery percentage reported by Fabman |
 | POS Authorization event | A successful (`allowed`) POS authorization from Fabman's resource log |
+| Checked-in members sensor (per space) | Number of distinct checked-in members, with their current list in `members` |
+| Check-in activity event (per space) | `checked_in` and `checked_out`, including the affected Fabman member |
 
 POS resources have no switch or activity state in this integration. Fabman POS
 bridges perform authorization checks and do not switch equipment on/off like a
@@ -52,11 +60,78 @@ does not establish that the resource is actually running. API observations confi
 the state. Ambiguous or invalid usage and offline/unknown bridge connectivity
 make activity unknown. Failed API reads make the entities unavailable.
 
+Command confirmation has a **30-second local timeout**, including when periodic
+sync is disabled or API reads fail. Without a matching observation, the assumed
+switch state ends, Switch/Activity/Status remain unknown, and Activity/Status expose
+`status_reason: command_timeout` instead of `command_unconfirmed`. A persistent HA
+notification explains the failure. An unchanged old door grant cannot clear this
+error; a later matching observation can, and dismisses the notification. The timeout
+does not retry activation, send a switch-off, or cancel a pending command at Fabman.
+Check the server/hardware before retrying. Timeout state is local and is not
+preserved across an integration reload or HA restart. Custom dashboard cards must
+use `command_timeout` to distinguish a failed confirmation from ongoing waiting.
+
 For doors, Activity represents an allowed **release interval**, not a physical
 door contact. It remains on for `maxOfflineUsage` seconds after the reported grant
 and then turns off locally, including when Fabman sends no later off event.
 See the [activity contract](docs/activity-contract.md) for exact semantics and
 migration limitations, including never-used resources.
+
+## Read-only check-in terminals and attendance
+
+For every space with a supported current `checkIn` terminal, the integration adds
+one **Fabman – <space name>** service device. Multiple terminals in the same space
+share its attendance entities. No switch or check-in/out command is created for a
+terminal. Existing switches become unavailable if their resource is reconfigured
+as a POS or check-in terminal.
+
+**Checked-in members** has the number of distinct members as its numeric state.
+Its `members` attribute is a list of objects containing `member_id`, `name`,
+`checked_in_at` (the earliest currently open session) and `resource_ids`.
+Multiple open sessions for the same member in one space count as one person;
+they remain on the list until their last session ends. `active_sessions` gives
+the separate session count and `last_successful_sync` shows the last good read.
+Example attributes, using synthetic data:
+
+```yaml
+space_id: 5
+active_sessions: 1
+members:
+  - member_id: 12345
+    name: Example Member
+    checked_in_at: "2026-10-22T07:50:00+00:00"
+    resource_ids: [1370]
+```
+
+**Check-in activity** reports `checked_in` or `checked_out`. Each event contains
+`account_id`, `space_id`, `member_id`, `member_name`, `log_id`, `resource_id`,
+`occurred_at`, `observed_at` and `stop_type`. `resource_id` is the resource assigned
+to that session; it must not be interpreted as proof of which terminal performed
+the checkout. `occurred_at` is Fabman's activity timestamp; `observed_at` is when
+the integration detected it. A short visit between polling refreshes produces
+both events in chronological order, even if the current member count is already
+zero. Trigger automations on new event occurrences, rather than only on changes
+to the `event_type` attribute: consecutive events can have the same type.
+
+On HA startup or integration reload the list is rebuilt from all active check-in
+logs, without replaying historical or downtime events. During normal operation
+the integration also reads recent completed sessions and re-reads previously
+open sessions that disappear, so a checkout is detected even if the check-in was
+days earlier. API failures retain the last list as attributes but make the space
+entities unavailable; other devices and terminal Connectivity continue working.
+An offline terminal does not check its members out. Backdated administrative
+corrections update the list without replaying events older than the tracking
+window. These are Fabman's recorded check-ins, not independent physical-presence
+detection. Names and IDs are exposed deliberately; email, contact, billing and
+other member-profile fields are not copied into these entities.
+
+Attendance uses the configured polling interval (30 seconds by default) and the
+existing webhook-triggered refresh. Subscribe the Fabman webhook to **Activity
+log** updates for faster detection. With polling disabled a working webhook is
+required for ongoing updates. An automation can use a member-count transition
+from zero to a positive number for the first arrival, or to zero for the last
+departure. Use the list attribute to render currently checked-in names on a
+dashboard. Use member IDs, rather than names, to identify people in automations.
 
 ## Resource synchronization
 

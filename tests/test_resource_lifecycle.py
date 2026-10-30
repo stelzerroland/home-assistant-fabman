@@ -3,9 +3,10 @@
 import asyncio
 import logging
 from copy import deepcopy
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -29,6 +30,10 @@ from custom_components.fabman.sensor import FabmanNukiBatterySensor
 from custom_components.fabman.api import FabmanAPIError
 
 from .factories import machine
+from .test_presence import BASE, SCOPE, attendance, terminal
+from custom_components.fabman.presence import SpacePresence, parse_session
+from custom_components.fabman.event import FabmanCheckInActivityEvent
+from custom_components.fabman.sensor import FabmanCheckedInMembersSensor
 
 
 async def test_member_action_routes_to_fabman_switch(runtime, coordinator, hass):
@@ -492,10 +497,14 @@ async def test_nuki_entities_separate_access_from_lock_and_battery_state(
 
     entities = runtime.entities()
     lock_sensor = next(
-        entity for entity in entities.values() if isinstance(entity, FabmanNukiLockSensor)
+        entity
+        for entity in entities.values()
+        if isinstance(entity, FabmanNukiLockSensor)
     )
     battery = next(
-        entity for entity in entities.values() if isinstance(entity, FabmanNukiBatterySensor)
+        entity
+        for entity in entities.values()
+        if isinstance(entity, FabmanNukiBatterySensor)
     )
     activity = next(
         entity
@@ -515,3 +524,243 @@ async def test_nuki_entities_separate_access_from_lock_and_battery_state(
     assert lock_sensor.is_on is None
     assert battery.native_value is None
     assert lock_sensor.extra_state_attributes["status_reason"] == "nuki_offline"
+
+
+async def test_check_in_terminals_share_a_space_service_without_any_controls(
+    runtime, coordinator, hass
+):
+    coordinator.presence.spaces[SCOPE] = SpacePresence(
+        *SCOPE,
+        name="Synthetic space",
+        available=True,
+        cursor=BASE,
+        baseline=BASE,
+        last_successful_sync=BASE,
+        sessions={10: parse_session(attendance(start=-100), 42)},
+    )
+    coordinator.async_set_updated_data({1370: terminal(), 1371: terminal(1371)})
+    coordinator._session.post = Mock(side_effect=AssertionError("Read-only attendance"))
+    await runtime.setup()
+    entities = runtime.entities().values()
+    assert len(entities) == 4  # Two bridge connections and one sensor/event pair.
+    roster = next(e for e in entities if isinstance(e, FabmanCheckedInMembersSensor))
+    activity = next(e for e in entities if isinstance(e, FabmanCheckInActivityEvent))
+    assert roster.registry_entry.device_id == activity.registry_entry.device_id
+    assert len({e.registry_entry.device_id for e in entities}) == 3
+    assert hass.states.get(roster.entity_id).state == "1"
+    assert roster.extra_state_attributes["members"][0]["member_id"] == 6
+    assert not any(
+        isinstance(
+            e,
+            (
+                switch.FabmanSwitch,
+                binary_sensor.FabmanActivitySensor,
+                sensor.FabmanSensor,
+            ),
+        )
+        for e in entities
+    )
+    transitions = []
+    remove = hass.bus.async_listen(
+        "state_changed", lambda event: transitions.append(event)
+    )
+    for event_type in ("checked_in", "checked_out"):
+        coordinator.presence.dispatch(
+            {
+                "event_type": event_type,
+                "account_id": 42,
+                "space_id": 5,
+                "member_id": 7,
+                "member_name": "Synthetic Member 7",
+                "log_id": 11,
+                "resource_id": 1371,
+                "occurred_at": BASE.isoformat(),
+            }
+        )
+    await runtime.flush()
+    remove()
+    assert [
+        e.data["new_state"].attributes["event_type"]
+        for e in transitions
+        if e.data["entity_id"] == activity.entity_id
+    ] == ["checked_in", "checked_out"]
+    assert hass.states.get(activity.entity_id).attributes["member_id"] == 7
+    coordinator._session.post.assert_not_called()
+
+
+async def test_old_switch_becomes_unavailable_when_resource_changes_to_check_in(
+    runtime, coordinator, hass
+):
+    coordinator.async_set_updated_data({1370: machine(1370)})
+    await runtime.setup()
+    old_switch = next(
+        e for e in runtime.entities().values() if isinstance(e, switch.FabmanSwitch)
+    )
+    coordinator.async_set_updated_data({1370: terminal()})
+    await runtime.flush()
+    assert hass.states.get(old_switch.entity_id).state == "unavailable"
+    with patch("custom_components.fabman.switch.async_get_clientsession") as session:
+        for action in (old_switch.async_turn_on, old_switch.async_turn_off):
+            with pytest.raises(HomeAssistantError, match="unavailable"):
+                await action()
+        with pytest.raises(HomeAssistantError, match="unavailable"):
+            await old_switch.async_turn_on_for_member(member_id=6)
+        session.assert_not_called()
+
+
+async def test_attendance_failures_only_make_the_space_entities_unavailable(
+    runtime, coordinator, hass
+):
+    resources = [machine(), terminal()]
+    with (
+        patch(
+            "custom_components.fabman.coordinator.FabmanAPI.get_resources",
+            new=AsyncMock(return_value=resources),
+        ),
+        patch(
+            "custom_components.fabman.coordinator.FabmanAPI.get_space",
+            new=AsyncMock(
+                return_value={"id": 5, "account": 42, "name": "Synthetic space"}
+            ),
+        ),
+        patch(
+            "custom_components.fabman.coordinator.FabmanAPI.get_check_in_logs",
+            new=AsyncMock(return_value=[attendance(start=-100)]),
+        ) as logs,
+    ):
+        await coordinator.async_refresh()
+        await runtime.setup()
+        roster = next(
+            e
+            for e in runtime.entities().values()
+            if isinstance(e, FabmanCheckedInMembersSensor)
+        )
+        assert hass.states.get(roster.entity_id).state == "1"
+        logs.side_effect = FabmanAPIError("HTTP 403")
+        await coordinator.async_refresh()
+        await runtime.flush()
+    assert coordinator.last_update_success
+    assert hass.states.get(roster.entity_id).state == "unavailable"
+    assert len(roster.extra_state_attributes["members"]) == 1
+    assert all(
+        e.available
+        for e in runtime.entities().values()
+        if not isinstance(e, (FabmanCheckedInMembersSensor, FabmanCheckInActivityEvent))
+    )
+
+
+async def test_space_entities_are_discovered_dynamically_and_keep_their_ids_on_reload(
+    runtime, coordinator
+):
+    coordinator.async_set_updated_data({1: machine()})
+    await runtime.setup()
+    coordinator.presence.spaces[SCOPE] = SpacePresence(
+        *SCOPE,
+        name="Space 5",
+        available=True,
+        cursor=BASE,
+        baseline=BASE,
+    )
+    coordinator.async_set_updated_data({1: machine(), 1370: terminal()})
+    await runtime.flush()
+    roster = next(
+        e
+        for e in runtime.entities().values()
+        if isinstance(e, FabmanCheckedInMembersSensor)
+    )
+    identities = {
+        key: (e.entity_id, e.registry_entry.device_id)
+        for key, e in runtime.entities().items()
+    }
+    device_id = roster.registry_entry.device_id
+    runtime.devices.async_update_device(device_id, name_by_user="My attendance")
+    coordinator.presence.spaces[SCOPE] = replace(
+        coordinator.presence.spaces[SCOPE], name="Resolved space name"
+    )
+    coordinator.async_update_listeners()
+    await runtime.flush()
+    assert runtime.devices.async_get(device_id).name == "Fabman – Resolved space name"
+    assert runtime.devices.async_get(device_id).name_by_user == "My attendance"
+    await runtime.reset()
+    await runtime.setup()
+    assert identities == {
+        key: (e.entity_id, e.registry_entry.device_id)
+        for key, e in runtime.entities().items()
+    }
+
+
+async def test_space_device_cleanup_requires_an_inactive_scope_and_good_inventory(
+    runtime, coordinator, hass
+):
+    coordinator.presence.spaces[SCOPE] = SpacePresence(*SCOPE, name="Synthetic space")
+    coordinator.async_set_updated_data({1370: terminal()})
+    await runtime.setup()
+    roster = next(
+        e
+        for e in runtime.entities().values()
+        if isinstance(e, FabmanCheckedInMembersSensor)
+    )
+    device = runtime.devices.async_get(roster.registry_entry.device_id)
+    coordinator.inventory_complete = True
+    assert not await async_remove_config_entry_device(hass, runtime.entry, device)
+    coordinator.presence.spaces[SCOPE] = replace(
+        coordinator.presence.spaces[SCOPE], active=False
+    )
+    coordinator.async_set_updated_data({})
+    assert not await async_remove_config_entry_device(hass, runtime.entry, device)
+    coordinator.inventory_complete = True
+    assert await async_remove_config_entry_device(hass, runtime.entry, device)
+
+
+async def test_coordinator_delivers_both_short_visit_events_after_the_roster_update(
+    runtime, coordinator, hass
+):
+    async def logs(account_id, space_id, **kwargs):
+        return [attendance(start=2, end=10)] if kwargs.get("status") == "all" else []
+
+    with (
+        patch(
+            "custom_components.fabman.coordinator.FabmanAPI.get_resources",
+            new=AsyncMock(return_value=[terminal()]),
+        ),
+        patch(
+            "custom_components.fabman.coordinator.FabmanAPI.get_space",
+            new=AsyncMock(
+                return_value={"id": 5, "account": 42, "name": "Synthetic space"}
+            ),
+        ),
+        patch(
+            "custom_components.fabman.coordinator.FabmanAPI.get_check_in_logs",
+            side_effect=logs,
+        ),
+        patch("custom_components.fabman.coordinator.dt_util.utcnow", return_value=BASE),
+    ):
+        await coordinator.async_refresh()
+        await runtime.setup()
+        activity = next(
+            e
+            for e in runtime.entities().values()
+            if isinstance(e, FabmanCheckInActivityEvent)
+        )
+        roster = next(
+            e
+            for e in runtime.entities().values()
+            if isinstance(e, FabmanCheckedInMembersSensor)
+        )
+        observed = []
+        remove = hass.bus.async_listen(
+            "state_changed", lambda event: observed.append(event)
+        )
+        with patch(
+            "custom_components.fabman.coordinator.dt_util.utcnow",
+            return_value=BASE + timedelta(seconds=30),
+        ):
+            await coordinator.async_refresh()
+            await runtime.flush()
+        remove()
+    assert hass.states.get(roster.entity_id).state == "0"
+    assert [
+        event.data["new_state"].attributes["event_type"]
+        for event in observed
+        if event.data["entity_id"] == activity.entity_id
+    ] == ["checked_in", "checked_out"]

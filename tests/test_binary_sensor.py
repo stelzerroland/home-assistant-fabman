@@ -87,7 +87,7 @@ async def test_platform_setup_is_passive_and_filters_unsupported_resources(
     supported = machine()
     door = {**machine(2), "controlType": "door"}
     no_bridge = {**machine(3), "_embedded": {"bridge": None}}
-    unsupported = {**machine(4), "controlType": "checkIn"}
+    unsupported = {**machine(4), "controlType": "unsupported"}
     malformed = {**machine(5), "_embedded": ["invalid"]}
     coordinator.async_set_updated_data(
         {r["id"]: r for r in [supported, door, no_bridge, unsupported, malformed]}

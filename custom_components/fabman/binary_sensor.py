@@ -19,21 +19,26 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         config_entry,
         coordinator,
         "binary_sensor",
-        (lambda resource_id, resource: FabmanActivitySensor(
-            coordinator, resource_id, config_entry.entry_id
-        ),),
+        (
+            lambda resource_id, resource: FabmanActivitySensor(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+        ),
         async_add_entities,
-        resource_filter=lambda resource: resource.get("controlType")
-        in ("machine", "door", "nuki"),
+        resource_filter=lambda resource: (
+            resource.get("controlType") in ("machine", "door", "nuki")
+        ),
     )
     async_setup_discovery(
         hass,
         config_entry,
         coordinator,
         "binary_sensor",
-        (lambda resource_id, resource: FabmanConnectivitySensor(
-            coordinator, resource_id, config_entry.entry_id
-        ),),
+        (
+            lambda resource_id, resource: FabmanConnectivitySensor(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+        ),
         async_add_entities,
     )
     async_setup_discovery(
@@ -41,9 +46,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         config_entry,
         coordinator,
         "binary_sensor",
-        (lambda resource_id, resource: FabmanNukiLockSensor(
-            coordinator, resource_id, config_entry.entry_id
-        ),),
+        (
+            lambda resource_id, resource: FabmanNukiLockSensor(
+                coordinator, resource_id, config_entry.entry_id
+            ),
+        ),
         async_add_entities,
         resource_filter=lambda resource: resource.get("controlType") == "nuki",
     )
@@ -53,6 +60,7 @@ class FabmanActivitySensor(FabmanEntity, BinarySensorEntity):
     """Activity is not a command acknowledgement or a physical door contact."""
 
     _attr_has_entity_name = True
+    _supported_control_types = ("machine", "door", "nuki")
     _attr_name = "Activity"
 
     def __init__(self, coordinator, resource_id, entry_id):
@@ -117,6 +125,7 @@ class FabmanNukiLockSensor(FabmanEntity, BinarySensorEntity):
     """Expose the Nuki lock state separately from Fabman's access pulse."""
 
     _attr_has_entity_name = True
+    _supported_control_types = ("nuki",)
     _attr_name = "Lock"
     _attr_device_class = BinarySensorDeviceClass.LOCK
 

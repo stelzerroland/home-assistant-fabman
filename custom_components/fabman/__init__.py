@@ -117,15 +117,24 @@ async def async_remove_config_entry_device(hass, entry, device_entry):
     ):
         return False
     resource_ids = set()
+    attendance_scopes = set()
     for domain, identifier in device_entry.identifiers:
         if domain == DOMAIN and identifier.startswith("fabman_resource_"):
             suffix = identifier.removeprefix("fabman_resource_")
             if suffix.isdecimal():
                 resource_ids.add(int(suffix))
-    if not resource_ids:
+        if domain == DOMAIN and identifier.startswith("fabman_presence_"):
+            parts = identifier.removeprefix("fabman_presence_").split("_")
+            if len(parts) == 2 and all(part.isdecimal() for part in parts):
+                attendance_scopes.add(tuple(int(part) for part in parts))
+    if not resource_ids and not attendance_scopes:
         return False
     return all(
         resource_id not in coordinator.data
         or coordinator.data[resource_id].get("state") in ("archived", "deleted")
         for resource_id in resource_ids
+    ) and all(
+        scope not in coordinator.presence.spaces
+        or not coordinator.presence.spaces[scope].active
+        for scope in attendance_scopes
     )
