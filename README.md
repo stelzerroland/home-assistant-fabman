@@ -11,10 +11,10 @@ Nuki status, read-only check-in attendance, bounded command confirmation, and
 optional per-Home-Assistant-user Fabman attribution. See the
 [v0.3.0 release notes](docs/releases/v0.3.0.md) for details and limitations.
 
-The **v0.4.0b1 beta** adds direct member attribution when the integration uses
+The **v0.4.0b2 beta** adds direct member attribution when the integration uses
 `https://internal.fabman.io/api/v1`. Stable installations continue to use the
 existing activation and reassignment flow. See the
-[beta release notes](docs/releases/v0.4.0b1.md).
+[beta release notes](docs/releases/v0.4.0b2.md).
 
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
@@ -231,8 +231,8 @@ URL configured for the integration:
 
 - With `https://internal.fabman.io/api/v1`, the selected member is sent directly
   in the `switch-on` request. Fabman checks that member's access rights. The
-  integration confirms the command and its resulting usage log without editing
-  the log afterward.
+  integration confirms the unique resulting usage log for that member without
+  editing the log afterward.
 - With `https://fabman.io/api/v1`, or any other API URL, the integration starts
   the session as the API-key member, waits up to 30 seconds for confirmed
   execution and reassigns the matching new log using

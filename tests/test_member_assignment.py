@@ -101,8 +101,10 @@ async def test_confirmed_usage_changes_only_member_with_fresh_version(assignment
 
 
 async def test_confirm_direct_member_confirms_without_editing_usage(assignment):
-    assignment.request.side_effect = [[usage(member=8)], usage(member=8)]
-    await assignment.confirm(command(member=8), 8, 90)
+    started_at = dt_util.utcnow()
+    direct_log = usage(member=8, createdAt=started_at.isoformat())
+    assignment.request.side_effect = [[direct_log], direct_log]
+    await assignment.confirm_direct_member(8, 90, started_at)
     assert [call.args[0] for call in assignment.request.call_args_list] == [
         "GET",
         "GET",
@@ -110,10 +112,27 @@ async def test_confirm_direct_member_confirms_without_editing_usage(assignment):
     assert all(call.args[0] != "PUT" for call in assignment.request.call_args_list)
 
 
-async def test_confirm_direct_member_rejects_different_command_member(assignment):
-    with pytest.raises(HomeAssistantError, match="member does not match"):
-        await assignment.confirm(command(member=7), 8, 90)
-    assignment.request.assert_not_called()
+async def test_confirm_direct_member_rejects_different_log_member(assignment):
+    started_at = dt_util.utcnow()
+    assignment.request.return_value = [
+        usage(member=7, createdAt=started_at.isoformat())
+    ]
+    with pytest.raises(HomeAssistantError, match="requested member"):
+        await assignment.confirm_direct_member(8, 90, started_at)
+    assignment.request.assert_awaited_once()
+
+
+async def test_confirm_direct_member_polls_until_usage_appears(assignment):
+    started_at = dt_util.utcnow()
+    direct_log = usage(member=8, createdAt=started_at.isoformat())
+    assignment.request.side_effect = [[], [direct_log], direct_log]
+    with patch("custom_components.fabman.assignment.asyncio.sleep", new=AsyncMock()):
+        await assignment.confirm_direct_member(8, 90, started_at)
+    assert [call.args[1] for call in assignment.request.call_args_list] == [
+        "resource-logs",
+        "resource-logs",
+        "resource-logs/91",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -338,10 +357,15 @@ async def test_full_http_member_action_posts_once_and_reassigns(
 
 
 @pytest.mark.parametrize("target", ["explicit", "mapped"])
-async def test_internal_api_starts_directly_as_selected_member(coordinator, target):
+@pytest.mark.parametrize("control_type", ["door", "machine"])
+async def test_internal_api_starts_directly_as_selected_member(
+    coordinator, target, control_type
+):
     calls = []
     baseline = deepcopy(coordinator.data[1])
-    log = usage(member=8)
+    baseline["controlType"] = control_type
+    coordinator.data[1] = baseline
+    log = usage(member=8, createdAt=dt_util.utcnow().isoformat())
 
     async def handler(request):
         calls.append((request.method, request.path))
@@ -352,7 +376,7 @@ async def test_internal_api_starts_directly_as_selected_member(coordinator, targ
             return web.json_response(baseline)
         if path.endswith("/switch-on"):
             assert await request.json() == {"member": 8}
-            return web.json_response(command(member=8), status=201)
+            return web.json_response("switch-on accepted", status=201)
         if path == "/resource-logs":
             return web.json_response([log])
         if path == "/resource-logs/91":
@@ -363,7 +387,7 @@ async def test_internal_api_starts_directly_as_selected_member(coordinator, targ
     app.router.add_route("*", "/{path:.*}", handler)
     async with TestClient(TestServer(app)) as client:
         coordinator.api_url = str(client.make_url("/")).rstrip("/")
-        entity = FabmanSwitch(coordinator, 1, "machine")
+        entity = FabmanSwitch(coordinator, 1, control_type)
         if target == "mapped":
             coordinator.user_member_map["ha-user"] = 8
             selectors = {"user_id": "ha-user"}

@@ -225,16 +225,17 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 self.coordinator.api_url
             )
             if direct_member:
-                command = await self._async_send_command(
-                    True, read_command=True, member_id=resolved_member_id
-                )
+                direct_activation_started_at = dt_util.utcnow()
+                await self._async_send_command(True, member_id=resolved_member_id)
             else:
                 command = await self._async_send_command(True, read_command=True)
             activation_time = dt_util.utcnow().isoformat()
             try:
                 if direct_member:
-                    await assignment.confirm(
-                        command, resolved_member_id, baseline_id
+                    await assignment.confirm_direct_member(
+                        resolved_member_id,
+                        baseline_id,
+                        direct_activation_started_at,
                     )
                 else:
                     await assignment.assign(

@@ -1,5 +1,14 @@
 # Unreleased
 
+# v0.4.0b2 (beta)
+
+- Confirm internal-API member activations from the resulting allowed usage log;
+  the `switch-on` response is not treated as a bridge-command object.
+- Poll for up to 30 seconds for the log and verify it belongs to the selected
+  member, without reassigning it or sending another activation.
+
+See [v0.4.0b2 beta notes](docs/releases/v0.4.0b2.md).
+
 # v0.4.0b1 (beta)
 
 - On `https://internal.fabman.io/api/v1`, pass a resolved mapped or explicitly

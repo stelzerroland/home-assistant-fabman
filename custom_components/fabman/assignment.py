@@ -1,7 +1,7 @@
 """Assign only a confirmed, uniquely matched remote activation to a member."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -131,13 +131,56 @@ class MemberAssignment:
             and positive_id(command.get("member"))
         )
 
-    async def confirm(self, command, member_id, baseline_id):
-        """Confirm the command and one resulting usage already attributed to member."""
-        if not positive_id(member_id):
-            raise HomeAssistantError("Invalid Fabman member for activation")
-        await self._confirm_usage(
-            command, baseline_id, expected_command_member=member_id
-        )
+    async def confirm_direct_member(self, member_id, baseline_id, started_at):
+        """Confirm one new usage log for the member sent to switch-on."""
+        if (
+            not positive_id(member_id)
+            or not isinstance(started_at, datetime)
+            or started_at.tzinfo is None
+        ):
+            raise HomeAssistantError("Invalid Fabman member activation baseline")
+        # The internal switch-on endpoint acknowledges with a string, not a
+        # BridgeCommand object. Confirm the resulting activity log instead.
+        start = started_at - timedelta(seconds=5)
+        async with asyncio.timeout(30):
+            while True:
+                end = dt_util.utcnow() + timedelta(seconds=5)
+                logs = await self.request(
+                    "GET",
+                    "resource-logs",
+                    params={
+                        "resource": self.resource_id,
+                        "from": start.isoformat(),
+                        "until": end.isoformat(),
+                        "type": "allowed",
+                        "limit": 2,
+                    },
+                )
+                if not isinstance(logs, list):
+                    raise HomeAssistantError("Invalid Fabman usage response")
+                if len(logs) > 1:
+                    raise HomeAssistantError(
+                        "No unique Fabman usage for this activation"
+                    )
+                if logs:
+                    log = logs[0]
+                    if not self.valid_member_log(
+                        log, member_id, baseline_id, start, end
+                    ):
+                        raise HomeAssistantError(
+                            "Fabman usage does not match the requested member"
+                        )
+                    current = await self.request(
+                        "GET", f"resource-logs/{log['id']}"
+                    )
+                    if not self.valid_member_log(
+                        current, member_id, baseline_id, start, end
+                    ) or current.get("id") != log["id"]:
+                        raise HomeAssistantError(
+                            "Fabman usage changed before confirmation"
+                        )
+                    return
+                await asyncio.sleep(1)
 
     async def assign(self, command, member_id, baseline_id):
         """Wait for execution, then update one verified log with optimistic locking."""
@@ -163,29 +206,17 @@ class MemberAssignment:
                 "Fabman member assignment could not be verified"
             )
 
-    async def _confirm_usage(
-        self, command, baseline_id, *, expected_command_member=None
-    ):
+    async def _confirm_usage(self, command, baseline_id):
         """Wait for execution and re-read the one matching usage without editing it."""
         command_id = command.get("id") if isinstance(command, dict) else None
         if not self.valid_command(command, command_id):
             raise HomeAssistantError("Invalid Fabman activation acknowledgement")
-        if (
-            expected_command_member is not None
-            and command.get("member") != expected_command_member
-        ):
-            raise HomeAssistantError("Fabman activation member does not match")
         async with asyncio.timeout(30):
             while command.get("state") == "pending":
                 await asyncio.sleep(1)
                 command = await self.request("GET", f"bridge-commands/{command_id}")
                 if not self.valid_command(command, command_id):
                     raise HomeAssistantError("Fabman activation identity changed")
-                if (
-                    expected_command_member is not None
-                    and command.get("member") != expected_command_member
-                ):
-                    raise HomeAssistantError("Fabman activation member changed")
             if command.get("state") != "done" or command.get("error"):
                 raise HomeAssistantError("Fabman activation was not successful")
             start = self.timestamp(command.get("createdAt"))
@@ -232,16 +263,25 @@ class MemberAssignment:
         return parsed if parsed is not None and parsed.tzinfo is not None else None
 
     def valid_log(self, log, command, baseline_id, start, end):
+        return (
+            isinstance(command, dict)
+            and self.valid_member_log(
+                log, command.get("member"), baseline_id, start, end
+            )
+        )
+
+    def valid_member_log(self, log, member_id, baseline_id, start, end):
         if not isinstance(log, dict):
             return False
         created = self.timestamp(log.get("createdAt"))
         return (
-            positive_id(log.get("id"))
+            positive_id(member_id)
+            and positive_id(log.get("id"))
             and log["id"] != baseline_id
             and log.get("resource") == self.resource_id
             and log.get("account") == self.account
             and log.get("type") == "allowed"
-            and log.get("member") == command["member"]
+            and log.get("member") == member_id
             and created is not None
             and start <= created <= end
         )
