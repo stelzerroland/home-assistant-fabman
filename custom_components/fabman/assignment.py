@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import aiohttp
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -11,6 +12,25 @@ from homeassistant.util import dt as dt_util
 def positive_id(value):
     """Reject booleans and non-integer identifiers."""
     return type(value) is int and 0 < value <= 2147483647
+
+
+def supports_direct_member_switch_on(api_url):
+    """Enable the member parameter only on Fabman's internal API deployment."""
+    try:
+        parsed = urlsplit(api_url)
+        return (
+            parsed.scheme.lower() == "https"
+            and parsed.hostname is not None
+            and parsed.hostname.lower() == "internal.fabman.io"
+            and parsed.port in (None, 443)
+            and parsed.path.rstrip("/") == "/api/v1"
+            and not parsed.username
+            and not parsed.password
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
 
 
 class MemberAssignment:
@@ -111,17 +131,61 @@ class MemberAssignment:
             and positive_id(command.get("member"))
         )
 
+    async def confirm(self, command, member_id, baseline_id):
+        """Confirm the command and one resulting usage already attributed to member."""
+        if not positive_id(member_id):
+            raise HomeAssistantError("Invalid Fabman member for activation")
+        await self._confirm_usage(
+            command, baseline_id, expected_command_member=member_id
+        )
+
     async def assign(self, command, member_id, baseline_id):
         """Wait for execution, then update one verified log with optimistic locking."""
+        current = await self._confirm_usage(command, baseline_id)
+        log_id = current["id"]
+        version = current.get("lockVersion")
+        if type(version) is not int or version < 0:
+            raise HomeAssistantError("Invalid Fabman usage lock version")
+        self.coordinator.async_note_assigned_door_grant(self.resource_id, current)
+        updated = await self.request(
+            "PUT",
+            f"resource-logs/{log_id}",
+            data={"member": member_id, "lockVersion": version},
+        )
+        if (
+            not isinstance(updated, dict)
+            or updated.get("id") != log_id
+            or updated.get("member") != member_id
+            or updated.get("resource") != self.resource_id
+            or updated.get("account") != self.account
+        ):
+            raise HomeAssistantError(
+                "Fabman member assignment could not be verified"
+            )
+
+    async def _confirm_usage(
+        self, command, baseline_id, *, expected_command_member=None
+    ):
+        """Wait for execution and re-read the one matching usage without editing it."""
         command_id = command.get("id") if isinstance(command, dict) else None
         if not self.valid_command(command, command_id):
             raise HomeAssistantError("Invalid Fabman activation acknowledgement")
+        if (
+            expected_command_member is not None
+            and command.get("member") != expected_command_member
+        ):
+            raise HomeAssistantError("Fabman activation member does not match")
         async with asyncio.timeout(30):
             while command.get("state") == "pending":
                 await asyncio.sleep(1)
                 command = await self.request("GET", f"bridge-commands/{command_id}")
                 if not self.valid_command(command, command_id):
                     raise HomeAssistantError("Fabman activation identity changed")
+                if (
+                    expected_command_member is not None
+                    and command.get("member") != expected_command_member
+                ):
+                    raise HomeAssistantError("Fabman activation member changed")
             if command.get("state") != "done" or command.get("error"):
                 raise HomeAssistantError("Fabman activation was not successful")
             start = self.timestamp(command.get("createdAt"))
@@ -151,32 +215,14 @@ class MemberAssignment:
             if not self.valid_log(log, command, baseline_id, start, end):
                 raise HomeAssistantError("Fabman usage does not match this activation")
             log_id = log["id"]
-            # Re-read before changing anything; concurrent changes must not be overwritten.
+            # Re-read before accepting the match or changing it; concurrent edits are unsafe.
             current = await self.request("GET", f"resource-logs/{log_id}")
             if (
                 not self.valid_log(current, command, baseline_id, start, end)
                 or current.get("id") != log_id
             ):
-                raise HomeAssistantError("Fabman usage changed before assignment")
-            version = current.get("lockVersion")
-            if type(version) is not int or version < 0:
-                raise HomeAssistantError("Invalid Fabman usage lock version")
-            self.coordinator.async_note_assigned_door_grant(self.resource_id, current)
-            updated = await self.request(
-                "PUT",
-                f"resource-logs/{log_id}",
-                data={"member": member_id, "lockVersion": version},
-            )
-            if (
-                not isinstance(updated, dict)
-                or updated.get("id") != log_id
-                or updated.get("member") != member_id
-                or updated.get("resource") != self.resource_id
-                or updated.get("account") != self.account
-            ):
-                raise HomeAssistantError(
-                    "Fabman member assignment could not be verified"
-                )
+                raise HomeAssistantError("Fabman usage changed before confirmation")
+            return current
 
     @staticmethod
     def timestamp(value):

@@ -11,6 +11,11 @@ Nuki status, read-only check-in attendance, bounded command confirmation, and
 optional per-Home-Assistant-user Fabman attribution. See the
 [v0.3.0 release notes](docs/releases/v0.3.0.md) for details and limitations.
 
+The **v0.4.0b1 beta** adds direct member attribution when the integration uses
+`https://internal.fabman.io/api/v1`. Stable installations continue to use the
+existing activation and reassignment flow. See the
+[beta release notes](docs/releases/v0.4.0b1.md).
+
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
 limitations are documented below; testing and feedback are welcome.
@@ -220,12 +225,24 @@ address, ignoring case. For a context-free call, a missing, ambiguous or
 cross-account member aborts before activation; there is no silent fallback to the
 API member. If an email search is ambiguous, use the numeric ID.
 
-The integration validates the member and reads a fresh usage baseline, sends one
-remote activation, waits up to 30 seconds for its confirmed execution and assigns
-the matching new log entry using `PUT /resource-logs/{id}` with the current
-`lockVersion`. It does not change an already-running machine session. It serializes
-activation commands for the same resource within one integration entry. Explicit
-off commands remain immediate and do not wait for assignment to finish.
+The integration resolves the member in the resource's Fabman account and reads a
+fresh usage baseline before activating. The activation method depends on the API
+URL configured for the integration:
+
+- With `https://internal.fabman.io/api/v1`, the selected member is sent directly
+  in the `switch-on` request. Fabman checks that member's access rights. The
+  integration confirms the command and its resulting usage log without editing
+  the log afterward.
+- With `https://fabman.io/api/v1`, or any other API URL, the integration starts
+  the session as the API-key member, waits up to 30 seconds for confirmed
+  execution and reassigns the matching new log using
+  `PUT /resource-logs/{id}` with its current `lockVersion`. Fabman does not check
+  the selected member's access rights for this reassignment path.
+
+Both paths send at most one activation and do not change an already-running
+machine session. Activation commands are serialized per resource within one
+integration entry. Explicit off commands remain immediate and do not wait for
+attribution to finish.
 
 Fabman does not document a direct usage ID in the activation response. Matching
 therefore requires exactly one allowed usage in the command's creation-to-completion
@@ -235,26 +252,28 @@ This is correlation rather than an atomic server-side transaction; external
 simultaneous controls cannot be locked by HA. Do not use this as a guaranteed
 attribution mechanism for concurrent external controls.
 
-If activation has already been accepted but assignment fails, the action raises a
-clear HA error. The resource may already be on, and the usage may still belong to
-the API member. Inspect the activity log; do not repeat activation merely to retry
-assignment. The integration does not retry activation, automatically switch off,
-or overwrite an assignment conflict. A restart during the operation can also
-leave attribution incomplete; pending assignments are not persisted.
+If activation has already been accepted but attribution cannot be confirmed, the
+action raises a clear HA error. The resource may already be on; inspect the activity
+log and do not repeat activation merely to retry attribution. The integration does
+not retry activation, automatically switch off, or overwrite an assignment
+conflict. A restart during the operation can also leave attribution incomplete;
+pending confirmations are not persisted.
 
-**Activation uses the configured API account's permissions.** Reassigning a log
-does not check the selected member's training, access rights or presence. It can
-affect that member's charges, packages and discounts. Normal HA entity-control
-permissions apply to the action. Configure HA-user mappings in the Fabman
-integration options.
+The public API reassignment path uses the configured API account's activation
+permissions and does not check the selected member's training, access rights or
+presence. The internal API's direct-member path is subject to the selected member's
+Fabman permissions. Attribution can affect that member's charges, packages and
+discounts. Normal HA entity-control permissions apply to the action. Configure
+HA-user mappings in the Fabman integration options.
 
-Switch off through `switch.turn_off` as usual. For an assigned door usage, HA keeps
-the verified original log creation time in memory so changing the member does not
-extend the release through a changed log-update timestamp. This anchor is not
-persisted across reloads/restarts; after a restart, the normal API-based activity
-rules apply. Local HTTP tests cover assignment for machine and door logs; reassignment
-of live hardware sessions, subsequent bridge updates and the bridge's displayed
-member still require a controlled pilot before relying on the feature.
+Switch off through `switch.turn_off` as usual. For a public-API reassignment of a
+door usage, HA keeps the verified original log creation time in memory so changing
+the member does not extend the release through a changed log-update timestamp. This
+anchor is not persisted across reloads/restarts; after a restart, the normal
+API-based activity rules apply. Local HTTP tests cover assignment for machine and
+door logs; live direct-member activation, later bridge updates and the bridge's
+displayed member still require a controlled pilot before relying on the internal
+API feature.
 
 References: [Fabman API schema](https://fabman.io/api/v1/swagger.json),
 [reassigning activity and related charges](https://help.fabman.io/article/39-reassign-activity).

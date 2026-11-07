@@ -1,5 +1,19 @@
 # Unreleased
 
+# v0.4.0b1 (beta)
+
+- On `https://internal.fabman.io/api/v1`, pass a resolved mapped or explicitly
+  selected member directly to `switch-on` and confirm the resulting command and
+  usage without reassigning its log.
+- Keep the existing post-activation log reassignment on the public Fabman API and
+  on any other configured API URL. Calls without a selected member still use the
+  API-key member on both deployments.
+- Fabman checks the selected member's permissions on the internal direct-member
+  path; the public API reassignment path continues using the API account's
+  activation permissions.
+
+See [v0.4.0b1 beta notes](docs/releases/v0.4.0b1.md).
+
 # v0.3.0 (stable)
 
 - Promote the v0.3.0b1–b4 feature series to stable: POS authorization events, Nuki

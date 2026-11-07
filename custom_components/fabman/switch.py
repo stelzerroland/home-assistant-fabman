@@ -8,7 +8,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service import async_register_platform_entity_service
 from homeassistant.util import dt as dt_util
 
-from .assignment import MemberAssignment, positive_id
+from .assignment import (
+    MemberAssignment,
+    positive_id,
+    supports_direct_member_switch_on,
+)
 from .const import DOMAIN
 from .entity import FabmanEntity
 from .lifecycle import async_setup_discovery
@@ -125,7 +129,7 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
     async def async_turn_on_for_member(
         self, member_id=None, email_address=None, user_id=None
     ):
-        """Activate and assign only for a mapped caller or explicit context-free call."""
+        """Activate with mapped or explicit member attribution when requested."""
         if user_id is not None:
             mapped_member_id = self.coordinator.user_member_map.get(user_id)
             if mapped_member_id is None:
@@ -217,10 +221,25 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
             ):
                 raise HomeAssistantError("Fabman usage is active or cannot be verified")
             baseline_id = usage.get("id") if usage else None
-            command = await self._async_send_command(True, read_command=True)
+            direct_member = supports_direct_member_switch_on(
+                self.coordinator.api_url
+            )
+            if direct_member:
+                command = await self._async_send_command(
+                    True, read_command=True, member_id=resolved_member_id
+                )
+            else:
+                command = await self._async_send_command(True, read_command=True)
             activation_time = dt_util.utcnow().isoformat()
             try:
-                await assignment.assign(command, resolved_member_id, baseline_id)
+                if direct_member:
+                    await assignment.confirm(
+                        command, resolved_member_id, baseline_id
+                    )
+                else:
+                    await assignment.assign(
+                        command, resolved_member_id, baseline_id
+                    )
             except (HomeAssistantError, TimeoutError):
                 self.coordinator.async_note_activation(
                     self._resource_id,
@@ -234,9 +253,9 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 )
                 # Activation is never repeated or reversed on an attribution error.
                 raise HomeAssistantError(
-                    "Fabman activation was accepted, but member assignment could not "
-                    "be confirmed. The resource may be on; check its activity log. "
-                    "Do not repeat activation just to retry assignment."
+                    "Fabman activation was accepted, but member attribution could "
+                    "not be confirmed. The resource may be on; check its activity "
+                    "log. Do not repeat activation just to retry attribution."
                 ) from None
             self.coordinator.async_note_activation(
                 self._resource_id,
@@ -250,9 +269,13 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
             )
             await self.coordinator.async_request_refresh()
 
-    async def _async_send_command(self, is_on, *, read_command=False):
+    async def _async_send_command(
+        self, is_on, *, read_command=False, member_id=None
+    ):
         if not self.available:
             raise HomeAssistantError("Fabman resource is unavailable")
+        if member_id is not None and (not is_on or not positive_id(member_id)):
+            raise HomeAssistantError("Invalid Fabman member for switch-on")
         previous_resource = self.resource
         action = "switch-on" if is_on else "switch-off"
         url = (
@@ -265,7 +288,7 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
         try:
             async with session.post(
                 url,
-                json={},
+                json={"member": member_id} if member_id is not None else {},
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=30),
                 allow_redirects=False,
