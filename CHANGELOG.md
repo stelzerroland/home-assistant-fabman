@@ -1,5 +1,18 @@
 # Unreleased
 
+# v0.3.0 (stable)
+
+- Promote the v0.3.0b1–b4 feature series to stable: POS authorization events, Nuki
+  status, bounded command confirmation, check-in attendance and per-HA-user Fabman
+  member attribution.
+- Require unique exact Fabman email matches for HA-user mappings.
+- Preserve API-key-member defaults and existing configuration/entity identities.
+- Keep member attribution as post-activation activity-log reassignment; selected
+  member permissions are not checked by this integration version.
+- No runtime changes from v0.3.0b4.
+
+See [v0.3.0 stable release notes](docs/releases/v0.3.0.md).
+
 # v0.3.0b4 (beta)
 
 - Fix email-based Home Assistant user mappings by filtering Fabman's full-text member search for a unique exact email.

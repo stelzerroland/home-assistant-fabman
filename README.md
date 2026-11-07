@@ -6,10 +6,10 @@ are read-only and report successful authorization events. `checkIn` terminals ar
 read-only: they expose bridge connectivity and contribute space-level attendance
 entities with member lists and check-in/check-out events.
 
-The current stable release is **v0.2.0**. The **v0.3.0b3 beta** combines POS and
-Nuki support, command confirmation timeouts, read-only check-in attendance, and
-optional per-Home-Assistant-user Fabman attribution. Attendance and user mapping
-are available in this beta but are not part of the stable release.
+The current stable release is **v0.3.0**. It includes POS authorization events,
+Nuki status, read-only check-in attendance, bounded command confirmation, and
+optional per-Home-Assistant-user Fabman attribution. See the
+[v0.3.0 release notes](docs/releases/v0.3.0.md) for details and limitations.
 
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
@@ -164,30 +164,24 @@ The API token determines whose permissions are used for remote commands and whos
 member account initially owns the resulting usage. Use an account with the
 necessary Fabman permissions. Keep the token secret.
 
-To update, open Fabman in HACS and install **v0.2.0**. If you previously selected
-a beta manually, choose **Redownload → Need a different version? → v0.2.0**.
-Beta/prerelease versions do not need to be enabled for this stable release.
-Read the [v0.2.0 release notes](docs/releases/v0.2.0.md) before updating from v0.1.1.
+To update, open Fabman in HACS and install **v0.3.0**. If you previously selected
+a beta manually, choose **Redownload → Need a different version? → v0.3.0**.
+Beta/prerelease versions do not need to be enabled for this stable release. Read
+the [v0.3.0 release notes](docs/releases/v0.3.0.md) before updating.
 Restart HA after updating the integration's Python code; reloading its entry alone
 does not load the new code. Updates preserve existing configuration and entity
 identities. However, legacy status sensors also adopt the new unknown/unavailable
 semantics when upgrading from v0.1.1, so
 check automations that depend on their previous behavior before updating.
-For a rollback, select v0.1.1 and restart again; that version lacks the native
-activity/connectivity sensors, resource lifecycle handling and member action.
-
-To try the **v0.3.0b3 beta**, open Fabman in HACS, choose **⋮ → Redownload**,
-enable **Show beta versions**, select **v0.3.0b3**, download it and restart Home
-Assistant. To return to stable, repeat these steps with beta versions disabled and
-select **v0.2.0**. Review the [beta release notes](docs/releases/v0.3.0b3.md)
-before testing. Check-in terminals are read-only; no physical bridge commands were
-sent during validation, and live behavior still needs a controlled pilot.
+For a rollback, select **v0.2.0** and restart. That version does not include POS,
+Nuki, check-in attendance or HA-user mapping entities. The v0.3.0b4 beta and this
+stable release use the same integration behavior.
 
 ### Manual installation
 
 Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart HA,
-then add the integration as described above. Install v0.2.0 for stable features
-or v0.3.0b3 to test POS, Nuki, attendance and user attribution.
+then add the integration as described above. Install v0.3.0 for the current stable
+feature set.
 
 ## Optional member assignment
 
@@ -337,20 +331,16 @@ inventory discovery requires a webhook or another successful refresh.
 
 ## Release history and future development
 
-The [changelog](CHANGELOG.md) and [individual beta release notes](docs/releases)
-retain the detailed history: corrected completed-usage timestamps (b2),
-Connectivity (b3), resource lifecycle synchronization (b4), and confirmation of
-short door releases that have already expired when read (b5). A targeted live
-door release check passed for b5; broader production comparison remains necessary.
-Activity and Connectivity share the existing polling/webhook resource reads and
-do not require separate polling requests.
+The [changelog](CHANGELOG.md) and [release notes](docs/releases) retain details for
+each version. Stable v0.2.0 added native Activity and Connectivity sensors,
+resource lifecycle synchronization, timed door releases and the optional member
+action. Stable v0.3.0 adds POS authorization events, Nuki status, check-in attendance,
+HA-user member mappings and exact-email mapping validation. The v0.2.0b5 live door
+release check passed; broader production comparison remains necessary.
 
-POS authorization monitoring, Nuki status, read-only attendance and per-user
-attribution are available for beta testing in v0.3.0b3. Further Fabman API support
-and extended equipment information remain possible future work.
-Power measurements and general resource-log history are not
-provided as entities. Resource synchronization, previously listed as planned, is
-implemented in v0.2.0 as described above.
+Power measurements and general resource-log history are not provided as entities.
+Further Fabman API support and extended equipment information remain possible
+future work.
 
 ## Development
 
