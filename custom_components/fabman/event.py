@@ -146,7 +146,7 @@ class FabmanActivationEvent(FabmanEntity, EventEntity):
 
     @callback
     def _handle_activation(self, event):
-        """Publish the HA actor and whether member reassignment completed."""
+        """Publish the HA actor and whether member attribution was confirmed."""
         if not self.available or not isinstance(event, dict):
             return
         attributes = {

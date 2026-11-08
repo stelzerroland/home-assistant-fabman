@@ -12,10 +12,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
-from custom_components.fabman.assignment import (
-    MemberAssignment,
-    supports_direct_member_switch_on,
-)
+from custom_components.fabman.assignment import MemberAssignment
 from custom_components.fabman.switch import FabmanSwitch, async_setup_entry
 
 START = "2026-10-21T10:00:00Z"
@@ -136,23 +133,6 @@ async def test_confirm_direct_member_polls_until_usage_appears(assignment):
 
 
 @pytest.mark.parametrize(
-    "api_url,expected",
-    [
-        ("https://internal.fabman.io/api/v1", True),
-        ("https://INTERNAL.fabman.io/api/v1/", True),
-        ("https://internal.fabman.io:443/api/v1", True),
-        ("https://fabman.io/api/v1", False),
-        ("http://internal.fabman.io/api/v1", False),
-        ("https://internal.fabman.io.example/api/v1", False),
-        ("https://internal.fabman.io/api/v2", False),
-        ("https://internal.fabman.io/api/v1?proxy=1", False),
-    ],
-)
-def test_direct_member_switch_on_is_internal_api_only(api_url, expected):
-    assert supports_direct_member_switch_on(api_url) is expected
-
-
-@pytest.mark.parametrize(
     "changes",
     [
         {"id": 90},
@@ -251,11 +231,13 @@ async def test_assignment_failure_keeps_accepted_state_without_second_post(coord
         worker.account = 42
         worker.resolve_member = AsyncMock(return_value=8)
         worker.request = AsyncMock(return_value=baseline)
-        worker.assign = AsyncMock(side_effect=HomeAssistantError("conflict"))
+        worker.confirm_direct_member = AsyncMock(
+            side_effect=HomeAssistantError("usage mismatch")
+        )
         with pytest.raises(HomeAssistantError, match="activation was accepted"):
             await entity.async_turn_on_for_member(member_id=8)
-        send.assert_awaited_once_with(True, read_command=True)
-        worker.assign.assert_awaited_once()
+        send.assert_awaited_once_with(True, member_id=8)
+        worker.confirm_direct_member.assert_awaited_once()
 
 
 async def test_normal_activation_waits_for_member_assignment_lock(coordinator):
@@ -308,57 +290,9 @@ async def test_service_schema_rejects_both_selectors(hass, coordinator):
     assert schema({"entity_id": "switch.test", "member_id": 8})["member_id"] == 8
 
 
-@pytest.mark.parametrize("control_type", ["door", "machine"])
-async def test_full_http_member_action_posts_once_and_reassigns(
-    coordinator, control_type
-):
-    calls = []
-    baseline = deepcopy(coordinator.data[1])
-    baseline["controlType"] = control_type
-    coordinator.data[1] = baseline
-    log = usage()
-
-    async def handler(request):
-        calls.append((request.method, request.path))
-        assert request.headers["Authorization"] == "Bearer test-token"
-        path = request.path
-        if path == "/members/8":
-            return web.json_response({"id": 8, "account": 42})
-        if path == "/resources/1":
-            return web.json_response(baseline)
-        if path.endswith("/switch-on"):
-            assert await request.json() == {}
-            return web.json_response(command(), status=201)
-        if path == "/resource-logs":
-            assert request.query["resource"] == "1"
-            return web.json_response([log])
-        if request.method == "PUT":
-            assert await request.json() == {"member": 8, "lockVersion": 3}
-            log["member"] = 8
-        return web.json_response(log)
-
-    app = web.Application()
-    app.router.add_route("*", "/{path:.*}", handler)
-    async with TestClient(TestServer(app)) as client:
-        coordinator.api_url = str(client.make_url("/")).rstrip("/")
-        entity = FabmanSwitch(coordinator, 1, control_type)
-        with (
-            patch(
-                "custom_components.fabman.switch.async_get_clientsession",
-                return_value=client.session,
-            ),
-            patch.object(coordinator, "async_request_refresh", new=AsyncMock()),
-        ):
-            await entity.async_turn_on_for_member(member_id=8)
-        assert log["member"] == 8
-        assert sum(method == "POST" for method, path in calls) == 1
-        assert sum(method == "PUT" for method, path in calls) == 1
-        assert entity.assumed_state
-
-
 @pytest.mark.parametrize("target", ["explicit", "mapped"])
 @pytest.mark.parametrize("control_type", ["door", "machine"])
-async def test_internal_api_starts_directly_as_selected_member(
+async def test_member_action_starts_directly_as_selected_member(
     coordinator, target, control_type
 ):
     calls = []
@@ -398,10 +332,6 @@ async def test_internal_api_starts_directly_as_selected_member(
                 "custom_components.fabman.switch.async_get_clientsession",
                 return_value=client.session,
             ),
-            patch(
-                "custom_components.fabman.switch.supports_direct_member_switch_on",
-                return_value=True,
-            ),
             patch.object(coordinator, "async_request_refresh", new=AsyncMock()),
         ):
             await entity.async_turn_on_for_member(**selectors)
@@ -410,8 +340,14 @@ async def test_internal_api_starts_directly_as_selected_member(
         assert entity.assumed_state
 
 
-async def test_internal_member_denial_does_not_fallback_or_retry(coordinator):
+async def test_member_denial_is_reported_without_fallback_or_retry(coordinator):
     calls = []
+    error_body = {
+        "statusCode": 422,
+        "error": "Unprocessable Entity",
+        "message": "This member has no permission to use the resource during that time",
+        "data": {"noPermission": True},
+    }
 
     async def handler(request):
         calls.append((request.method, request.path))
@@ -421,7 +357,7 @@ async def test_internal_member_denial_does_not_fallback_or_retry(coordinator):
             return web.json_response(coordinator.data[1])
         if request.path.endswith("/switch-on"):
             assert await request.json() == {"member": 8}
-            return web.json_response({}, status=403)
+            return web.json_response(error_body, status=422)
         return web.json_response({}, status=404)
 
     app = web.Application()
@@ -434,12 +370,9 @@ async def test_internal_member_denial_does_not_fallback_or_retry(coordinator):
                 "custom_components.fabman.switch.async_get_clientsession",
                 return_value=client.session,
             ),
-            patch(
-                "custom_components.fabman.switch.supports_direct_member_switch_on",
-                return_value=True,
-            ),
         ):
-            with pytest.raises(HomeAssistantError, match="HTTP 403"):
+            with pytest.raises(HomeAssistantError) as error:
                 await entity.async_turn_on_for_member(member_id=8)
+            assert "does not have permission" in str(error.value)
         assert sum(method == "POST" for method, path in calls) == 1
         assert all(method != "PUT" for method, path in calls)

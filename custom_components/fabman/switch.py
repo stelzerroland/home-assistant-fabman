@@ -11,7 +11,6 @@ from homeassistant.util import dt as dt_util
 from .assignment import (
     MemberAssignment,
     positive_id,
-    supports_direct_member_switch_on,
 )
 from .const import DOMAIN
 from .entity import FabmanEntity
@@ -19,7 +18,7 @@ from .lifecycle import async_setup_discovery
 
 
 async def _async_turn_on_service(entity, call):
-    """Pass the authenticated caller and optional legacy target to the switch."""
+    """Pass the authenticated caller and optional member selector to the switch."""
     await entity.async_turn_on_for_member(
         member_id=call.data.get("member_id"),
         email_address=call.data.get("email_address"),
@@ -221,26 +220,15 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
             ):
                 raise HomeAssistantError("Fabman usage is active or cannot be verified")
             baseline_id = usage.get("id") if usage else None
-            direct_member = supports_direct_member_switch_on(
-                self.coordinator.api_url
-            )
-            if direct_member:
-                direct_activation_started_at = dt_util.utcnow()
-                await self._async_send_command(True, member_id=resolved_member_id)
-            else:
-                command = await self._async_send_command(True, read_command=True)
+            direct_activation_started_at = dt_util.utcnow()
+            await self._async_send_command(True, member_id=resolved_member_id)
             activation_time = dt_util.utcnow().isoformat()
             try:
-                if direct_member:
-                    await assignment.confirm_direct_member(
-                        resolved_member_id,
-                        baseline_id,
-                        direct_activation_started_at,
-                    )
-                else:
-                    await assignment.assign(
-                        command, resolved_member_id, baseline_id
-                    )
+                await assignment.confirm_direct_member(
+                    resolved_member_id,
+                    baseline_id,
+                    direct_activation_started_at,
+                )
             except (HomeAssistantError, TimeoutError):
                 self.coordinator.async_note_activation(
                     self._resource_id,
@@ -270,9 +258,7 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
             )
             await self.coordinator.async_request_refresh()
 
-    async def _async_send_command(
-        self, is_on, *, read_command=False, member_id=None
-    ):
+    async def _async_send_command(self, is_on, *, member_id=None):
         if not self.available:
             raise HomeAssistantError("Fabman resource is unavailable")
         if member_id is not None and (not is_on or not positive_id(member_id)):
@@ -285,7 +271,6 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
         )
         headers = {"Authorization": f"Bearer {self.coordinator.api_token}"}
         session = async_get_clientsession(self.coordinator.hass)
-        command = None
         try:
             async with session.post(
                 url,
@@ -295,16 +280,46 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
                 allow_redirects=False,
             ) as response:
                 if response.status != 201:
+                    detail = None
+                    if is_on and response.status == 422:
+                        try:
+                            error_body = await response.json()
+                        except (aiohttp.ClientError, ValueError, TimeoutError):
+                            error_body = None
+                        if isinstance(error_body, dict):
+                            data = error_body.get("data")
+                            if isinstance(data, dict) and data.get("noPackage") is True:
+                                detail = (
+                                    "Fabman denied switch-on: the member used for "
+                                    "this action has no package that allows access "
+                                    "to this resource at this time."
+                                )
+                            elif (
+                                isinstance(data, dict)
+                                and data.get("noPermission") is True
+                            ):
+                                detail = (
+                                    "Fabman denied switch-on: the member used for "
+                                    "this action does not have permission to use "
+                                    "this resource at this time."
+                                )
+                            elif (
+                                isinstance(error_body.get("message"), str)
+                                and error_body["message"].strip().casefold()
+                                == "invalid member id"
+                            ):
+                                detail = (
+                                    "Fabman rejected the member ID. Check the Home "
+                                    "Assistant user mapping or the member_id passed "
+                                    "to fabman.turn_on."
+                                )
                     raise HomeAssistantError(
-                        f"Fabman {action} failed for resource {self._resource_id}: "
-                        f"HTTP {response.status}"
+                        detail
+                        or (
+                            f"Fabman {action} failed for resource {self._resource_id}: "
+                            f"HTTP {response.status}"
+                        )
                     )
-                if read_command:
-                    try:
-                        command = await response.json()
-                    except (aiohttp.ClientError, ValueError, TimeoutError):
-                        # Even malformed acknowledgements must retain the accepted state.
-                        command = None
         except (aiohttp.ClientError, TimeoutError) as err:
             raise HomeAssistantError(
                 f"Unable to control Fabman resource {self._resource_id}"
@@ -313,4 +328,3 @@ class FabmanSwitch(FabmanEntity, SwitchEntity):
         self.coordinator.async_note_command(
             self._resource_id, is_on, previous_resource=previous_resource
         )
-        return command

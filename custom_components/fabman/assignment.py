@@ -1,8 +1,7 @@
-"""Assign only a confirmed, uniquely matched remote activation to a member."""
+"""Resolve Fabman members and verify direct member activations."""
 
 import asyncio
 from datetime import datetime, timedelta
-from urllib.parse import urlsplit
 
 import aiohttp
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -14,27 +13,8 @@ def positive_id(value):
     return type(value) is int and 0 < value <= 2147483647
 
 
-def supports_direct_member_switch_on(api_url):
-    """Enable the member parameter only on Fabman's internal API deployment."""
-    try:
-        parsed = urlsplit(api_url)
-        return (
-            parsed.scheme.lower() == "https"
-            and parsed.hostname is not None
-            and parsed.hostname.lower() == "internal.fabman.io"
-            and parsed.port in (None, 443)
-            and parsed.path.rstrip("/") == "/api/v1"
-            and not parsed.username
-            and not parsed.password
-            and not parsed.query
-            and not parsed.fragment
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-
-
 class MemberAssignment:
-    """Keep command and usage identity local to one action, never retry activation."""
+    """Keep member resolution and usage verification local to one action."""
 
     def __init__(self, session, coordinator, resource_id):
         self.session = session
@@ -56,13 +36,11 @@ class MemberAssignment:
             ) as response:
                 if response.status != 200:
                     raise HomeAssistantError(
-                        f"Fabman member assignment request failed: HTTP {response.status}"
+                        f"Fabman API request failed: HTTP {response.status}"
                     )
                 return await response.json()
         except (aiohttp.ClientError, TimeoutError, ValueError):
-            raise HomeAssistantError(
-                "Fabman member assignment request failed"
-            ) from None
+            raise HomeAssistantError("Fabman API request failed") from None
 
     async def resolve_member(self, member_id=None, email_address=None):
         """Resolve an exact member in the resource's account before activation."""
@@ -139,8 +117,8 @@ class MemberAssignment:
             or started_at.tzinfo is None
         ):
             raise HomeAssistantError("Invalid Fabman member activation baseline")
-        # The internal switch-on endpoint acknowledges with a string, not a
-        # BridgeCommand object. Confirm the resulting activity log instead.
+        # switch-on does not return a BridgeCommand object. Confirm the resulting
+        # activity log instead.
         start = started_at - timedelta(seconds=5)
         async with asyncio.timeout(30):
             while True:
@@ -203,7 +181,7 @@ class MemberAssignment:
             or updated.get("account") != self.account
         ):
             raise HomeAssistantError(
-                "Fabman member assignment could not be verified"
+                "Fabman member attribution could not be verified"
             )
 
     async def _confirm_usage(self, command, baseline_id):

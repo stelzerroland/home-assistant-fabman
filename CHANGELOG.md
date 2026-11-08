@@ -1,5 +1,15 @@
 # Unreleased
 
+# v0.4.0b3 (beta)
+
+- Send a mapped or explicitly selected member directly with `switch-on` on any
+  configured Fabman API URL, including production and internal; remove the
+  server-specific route and stop using post-activation usage reassignment.
+- Show clear Home Assistant errors for Fabman's `noPackage`, `noPermission` and
+  `Invalid member ID` switch-on responses.
+
+See [v0.4.0b3 beta notes](docs/releases/v0.4.0b3.md).
+
 # v0.4.0b2 (beta)
 
 - Confirm internal-API member activations from the resulting allowed usage log;

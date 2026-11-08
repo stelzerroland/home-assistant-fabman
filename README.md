@@ -11,10 +11,9 @@ Nuki status, read-only check-in attendance, bounded command confirmation, and
 optional per-Home-Assistant-user Fabman attribution. See the
 [v0.3.0 release notes](docs/releases/v0.3.0.md) for details and limitations.
 
-The **v0.4.0b2 beta** adds direct member attribution when the integration uses
-`https://internal.fabman.io/api/v1`. Stable installations continue to use the
-existing activation and reassignment flow. See the
-[beta release notes](docs/releases/v0.4.0b2.md).
+The **v0.4.0b3 beta** sends selected members directly with `switch-on` on both
+production and internal Fabman APIs, and shows clearer messages when Fabman denies
+an activation. See the [beta release notes](docs/releases/v0.4.0b3.md).
 
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
@@ -165,9 +164,11 @@ three-dot menu to add this repository.
 5. Keep periodic synchronization enabled unless you have a working webhook setup.
    The default interval is **30 seconds**; configuration accepts 10–3600 seconds.
 
-The API token determines whose permissions are used for remote commands and whose
-member account initially owns the resulting usage. Use an account with the
-necessary Fabman permissions. Keep the token secret.
+The API token authenticates API requests and determines which member is used when
+an action does not select another member. For a mapped or explicitly selected
+member, Fabman checks that member's permissions when processing `switch-on`. Keep
+the token secret and ensure its account can access the resources and member data
+used by the integration.
 
 To update, open Fabman in HACS and install **v0.3.0**. If you previously selected
 a beta manually, choose **Redownload → Need a different version? → v0.3.0**.
@@ -188,11 +189,11 @@ Copy `custom_components/fabman` into `/config/custom_components/fabman`, restart
 then add the integration as described above. Install v0.3.0 for the current stable
 feature set.
 
-## Optional member assignment
+## Optional member attribution
 
-The additional **Fabman: Turn on** action (`fabman.turn_on`) can assign the
-resulting usage to a different Fabman member. The integration also supports a
-per-user Home Assistant to Fabman member mapping, as described below.
+The additional **Fabman: Turn on** action (`fabman.turn_on`) can start a session
+directly as a Fabman member. The integration also supports a per-user Home
+Assistant to Fabman member mapping, as described below.
 
 Use it in **Developer tools → Actions**, a script, an automation or a dashboard
 button. Select a Fabman switch and provide **either** `member_id` **or**
@@ -225,58 +226,42 @@ address, ignoring case. For a context-free call, a missing, ambiguous or
 cross-account member aborts before activation; there is no silent fallback to the
 API member. If an email search is ambiguous, use the numeric ID.
 
-The integration resolves the member in the resource's Fabman account and reads a
-fresh usage baseline before activating. The activation method depends on the API
-URL configured for the integration:
+For a mapped or explicit member, the integration resolves that member in the
+resource's Fabman account and reads a fresh usage baseline before activating. It
+sends the member ID directly in the `switch-on` request on both the production and
+internal Fabman API, and Fabman checks that member's access rights. The integration
+then confirms the unique resulting usage log and never edits it afterward. When no
+member is selected, the request omits the member and uses the API-key member as
+before.
 
-- With `https://internal.fabman.io/api/v1`, the selected member is sent directly
-  in the `switch-on` request. Fabman checks that member's access rights. The
-  integration confirms the unique resulting usage log for that member without
-  editing the log afterward.
-- With `https://fabman.io/api/v1`, or any other API URL, the integration starts
-  the session as the API-key member, waits up to 30 seconds for confirmed
-  execution and reassigns the matching new log using
-  `PUT /resource-logs/{id}` with its current `lockVersion`. Fabman does not check
-  the selected member's access rights for this reassignment path.
-
-Both paths send at most one activation and do not change an already-running
+The integration sends at most one activation and does not change an already-running
 machine session. Activation commands are serialized per resource within one
 integration entry. Explicit off commands remain immediate and do not wait for
-attribution to finish.
+member confirmation.
 
-Fabman does not document a direct usage ID in the activation response. Matching
-therefore requires exactly one allowed usage in the command's creation-to-completion
-time window, on the same account/resource, initially belonging to the command's
-member and different from the baseline. Missing or multiple matches are rejected.
+Fabman does not return a usage ID in the activation response. Matching therefore
+requires exactly one allowed usage in the activation time window, on the same
+account/resource, belonging to the member sent with the command and different
+from the baseline. Missing or multiple matches are rejected.
 This is correlation rather than an atomic server-side transaction; external
 simultaneous controls cannot be locked by HA. Do not use this as a guaranteed
 attribution mechanism for concurrent external controls.
 
-If activation has already been accepted but attribution cannot be confirmed, the
-action raises a clear HA error. The resource may already be on; inspect the activity
-log and do not repeat activation merely to retry attribution. The integration does
-not retry activation, automatically switch off, or overwrite an assignment
-conflict. A restart during the operation can also leave attribution incomplete;
-pending confirmations are not persisted.
+If Fabman rejects `switch-on`, the action reports the reason when the API provides
+it: no package permits access, the member lacks permission, or the member ID is
+invalid. Check the HA mapping or `member_id` for an invalid ID. If activation was
+accepted but its activity log cannot be confirmed, the action raises a separate
+warning: the resource may already be on, so inspect its activity log and do not
+repeat activation merely to retry confirmation. The integration does not retry
+activation or automatically switch off. A restart during confirmation can also
+leave attribution unconfirmed; pending confirmations are not persisted.
 
-The public API reassignment path uses the configured API account's activation
-permissions and does not check the selected member's training, access rights or
-presence. The internal API's direct-member path is subject to the selected member's
-Fabman permissions. Attribution can affect that member's charges, packages and
-discounts. Normal HA entity-control permissions apply to the action. Configure
-HA-user mappings in the Fabman integration options.
+Attribution can affect the selected member's charges, packages and discounts.
+Normal HA entity-control permissions apply to the action. Configure HA-user
+mappings in the Fabman integration options. Switch off through `switch.turn_off`
+as usual.
 
-Switch off through `switch.turn_off` as usual. For a public-API reassignment of a
-door usage, HA keeps the verified original log creation time in memory so changing
-the member does not extend the release through a changed log-update timestamp. This
-anchor is not persisted across reloads/restarts; after a restart, the normal
-API-based activity rules apply. Local HTTP tests cover assignment for machine and
-door logs; live direct-member activation, later bridge updates and the bridge's
-displayed member still require a controlled pilot before relying on the internal
-API feature.
-
-References: [Fabman API schema](https://fabman.io/api/v1/swagger.json),
-[reassigning activity and related charges](https://help.fabman.io/article/39-reassign-activity).
+Reference: [Fabman API schema](https://fabman.io/api/v1/swagger.json).
 
 ## Home Assistant user mappings
 
@@ -290,16 +275,17 @@ options flow.
 
 For **fabman.turn_on** and ordinary **switch.turn_on** actions, Home Assistant
 supplies the caller's user ID. If that ID has a mapping, the integration validates
-the Fabman member and attributes the new usage to that member. If the caller has no
-mapping, it leaves the Fabman usage with the API-key member; it does not attempt a
-reassignment. Calls without an HA user ID also use the API-key member unless an
-explicit member ID or email is supplied to fabman.turn_on. An automation that
-carries a user ID uses that user's mapping; scheduled or system-triggered
+the Fabman member and starts the new usage as that member. If the caller has no
+mapping, Fabman uses the API-key member. Calls without an HA user ID also use the
+API-key member unless an explicit member ID or email is supplied to
+`fabman.turn_on`. An automation that carries a user ID uses that user's mapping;
+scheduled or system-triggered
 automations without one use the API-key member by default.
 
 Each accepted bridge activation creates an **Activation** event on its resource.
 The event includes ha_user_name, ha_user_id, attribution,
-assignment_status, requested_member_id and assigned_member_id. The resource
+assignment_status, requested_member_id and assigned_member_id. The status records
+whether the requested member was confirmed in Fabman's activity log. The resource
 status sensor also exposes the latest activation in last_activation_* attributes.
 This latest-activation snapshot is kept in memory and resets when the
 integration reloads or Home Assistant restarts.
