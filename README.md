@@ -11,9 +11,9 @@ Nuki status, read-only check-in attendance, bounded command confirmation, and
 optional per-Home-Assistant-user Fabman attribution. See the
 [v0.3.0 release notes](docs/releases/v0.3.0.md) for details and limitations.
 
-The **v0.4.0b4 beta** sends selected members directly with `switch-on` on both
+The **v0.4.0b5 beta** sends selected members directly with `switch-on` on both
 production and internal Fabman APIs, and shows clearer messages when Fabman denies
-an activation. It also adds opt-in QR direct links for machines and doors. See the [beta release notes](docs/releases/v0.4.0b4.md).
+an activation. It also adds opt-in QR direct links for machines and doors. See the [beta release notes](docs/releases/v0.4.0b5.md).
 
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
@@ -290,7 +290,7 @@ status sensor also exposes the latest activation in last_activation_* attributes
 This latest-activation snapshot is kept in memory and resets when the
 integration reloads or Home Assistant restarts.
 
-## QR direct links (v0.4.0b4 beta)
+## QR direct links (v0.4.0b5 beta)
 
 Every resource's direct link is **disabled by default**, including existing
 installations and newly discovered resources. Administrators opt in individual

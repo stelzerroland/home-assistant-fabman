@@ -1,5 +1,10 @@
 # Unreleased
 
+## v0.4.0b5
+
+- Declare the Home Assistant `http` dependency required by the QR panel's static frontend assets.
+- Correct the v0.4.0b4 dependency metadata; QR direct links remain disabled by default.
+
 ## v0.4.0b4
 
 - Add a shared authenticated QR control panel for machines and doors.
