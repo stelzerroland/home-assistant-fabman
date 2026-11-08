@@ -3,7 +3,8 @@
 import logging
 from collections import defaultdict
 from asyncio import Lock
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from uuid import uuid4
 from datetime import timedelta
 
 from homeassistant.components import persistent_notification
@@ -65,6 +66,7 @@ class PendingCommand:
     """A requested state, separate from any observed resource data."""
 
     is_on: bool
+    command_id: str = field(default_factory=lambda: uuid4().hex)
     previous_door_grant: str | None = None
     previous_door_usage_id: int | None = None
 
@@ -86,10 +88,12 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
         self._unloaded = False
         self._revision = 0
         self._retry_not_before = 0
+        self.command_outcomes = {}
         self.pending_commands = {}
         self.timed_out_commands = {}
         self._entry_id = entry_id or "default"
         self.command_locks = defaultdict(Lock)
+        self.dispatch_locks = defaultdict(Lock)
         self._assigned_door_grants = {}
         self._nuki_devices_by_space = {}
         self._nuki_failed_spaces = set()
@@ -253,11 +257,18 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
                 or matches
                 or resource.get("controlType") not in ("machine", "door", "nuki")
             ):
-                self._clear_command(resource_id)
+                self._clear_command(
+                    resource_id, outcome="confirmed" if matches else "unavailable"
+                )
 
-    def _clear_command(self, resource_id):
-        self.pending_commands.pop(resource_id, None)
+    def _clear_command(self, resource_id, outcome="superseded"):
+        command = self.pending_commands.pop(resource_id, None)
+        command = command or self.timed_out_commands.pop(resource_id, None)
         self.timed_out_commands.pop(resource_id, None)
+        if command is not None:
+            self.command_outcomes[command.command_id] = outcome
+        while len(self.command_outcomes) > 256:
+            self.command_outcomes.pop(next(iter(self.command_outcomes)))
         timer = self._command_timeout_timers.pop(resource_id, None)
         if timer is not None:
             timer.cancel()
@@ -278,6 +289,7 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             timer.cancel()
         self.pending_commands.pop(resource_id)
         self.timed_out_commands[resource_id] = command
+        self.command_outcomes[command.command_id] = "timeout"
         _LOGGER.warning(
             "Fabman command for resource %s was not confirmed within %s seconds; "
             "state remains unknown and no command was retried or cancelled",
@@ -407,13 +419,18 @@ class FabmanDataUpdateCoordinator(DataUpdateCoordinator):
             else None
         )
         self._clear_command(resource_id)
-        command = PendingCommand(is_on, previous_grant, previous_usage_id)
+        command = PendingCommand(
+            is_on,
+            previous_door_grant=previous_grant,
+            previous_door_usage_id=previous_usage_id,
+        )
         self.pending_commands[resource_id] = command
         self._command_timeout_timers[resource_id] = self.hass.loop.call_later(
             COMMAND_CONFIRMATION_TIMEOUT, self._command_timed_out, resource_id, command
         )
         self.async_update_listeners()
         self.async_schedule_refresh(resource_id)
+        return command
 
     def async_schedule_refresh(self, resource_id, delay=2):
         """Reconcile a command without delaying the service call."""

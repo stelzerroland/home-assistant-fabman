@@ -1,5 +1,15 @@
 # Unreleased
 
+## v0.4.0b4
+
+- Add a shared authenticated QR control panel for machines and doors.
+- Direct links are opt-in per resource and disabled by default, including discovery.
+- Add local SVG QR generation, print view and browser/app link copying.
+- Recheck HA permissions, mapping, opt-in and usage before dispatch.
+- Bind expiring confirmations to users and correlate individual command outcomes.
+- Add German UI, Python and mobile browser tests, QR round-trip decoding and frontend CI.
+
+
 # v0.4.0b3 (beta)
 
 - Send a mapped or explicitly selected member directly with `switch-on` on any

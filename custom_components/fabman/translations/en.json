@@ -15,11 +15,12 @@
   "options": {
     "step": {
       "init": {
-        "title": "Fabman user mappings",
+        "title": "Fabman options",
         "description": "Current mappings:\n{mappings}",
         "menu_options": {
           "add_mapping": "Add or update a mapping",
-          "remove_mapping": "Remove a mapping"
+          "remove_mapping": "Remove a mapping",
+          "direct_links": "Direct links"
         }
       },
       "add_mapping": {
@@ -35,6 +36,13 @@
         "data": {
           "ha_user": "Mapping to remove"
         }
+      },
+      "direct_links": {
+        "title": "Enable resource direct links",
+        "description": "All links are disabled by default. Select only machines and doors that should have a QR control page. Unselect a resource to revoke existing links. Copy links and print QR codes in the Fabman sidebar panel.",
+        "data": {
+          "direct_link_resources": "Resources with an enabled direct link"
+        }
       }
     },
     "error": {
@@ -43,11 +51,14 @@
       "invalid_member": "The Fabman member was not found in this Fabman account.",
       "integration_unavailable": "The Fabman integration is not currently available.",
       "account_unavailable": "No Fabman account could be determined from the resources.",
-      "member_lookup_failed": "Fabman could not verify the member. Check the API connection and try again."
+      "member_lookup_failed": "Fabman could not verify the member. Check the API connection and try again.",
+      "invalid_resource": "Select a current machine or door from this connection."
     },
     "abort": {
       "no_users": "There are no active Home Assistant users available to map.",
-      "no_mappings": "There are no mappings to remove."
+      "no_mappings": "There are no mappings to remove.",
+      "integration_unavailable": "The Fabman integration is currently unavailable.",
+      "no_direct_link_resources": "No current machines or doors are available."
     }
   }
 }

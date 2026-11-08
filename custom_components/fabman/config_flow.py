@@ -6,6 +6,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .assignment import MemberAssignment, positive_id
 from .const import (
     CONF_API_TOKEN,
+    CONF_DIRECT_LINK_RESOURCES,
     CONF_API_URL,
     CONF_ENABLE_PERIODIC_SYNC,
     CONF_POLL_INTERVAL,
@@ -64,7 +65,9 @@ class FabmanOptionsFlow(config_entries.OptionsFlowWithReload):
         return self.async_show_menu(
             step_id="init",
             menu_options=(
-                ["add_mapping", "remove_mapping"] if mappings else ["add_mapping"]
+                ["add_mapping", "remove_mapping", "direct_links"]
+                if mappings
+                else ["add_mapping", "direct_links"]
             ),
             description_placeholders={
                 "mappings": "\n".join(overview) or "No mappings configured"
@@ -173,6 +176,61 @@ class FabmanOptionsFlow(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="remove_mapping",
             data_schema=vol.Schema({vol.Required("ha_user"): vol.In(user_options)}),
+            errors=errors,
+        )
+
+    async def async_step_direct_links(self, user_input=None):
+        """Explicit opt-in per resource; discovery never grants access."""
+        from .direct_links import enabled_resources
+        from .lifecycle import resource_is_current
+
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if coordinator is None or not coordinator.last_update_success:
+            return self.async_abort(reason="integration_unavailable")
+        resources = {
+            str(resource_id): resource.get("name", str(resource_id))
+            for resource_id, resource in (coordinator.data or {}).items()
+            if resource_is_current(resource)
+            and resource.get("controlType") in ("machine", "door")
+        }
+        if not resources:
+            return self.async_abort(reason="no_direct_link_resources")
+        if user_input is not None:
+            selected = user_input.get(CONF_DIRECT_LINK_RESOURCES, [])
+            if isinstance(selected, list) and all(
+                isinstance(value, str) and value in resources for value in selected
+            ):
+                options = dict(self.config_entry.options)
+                options[CONF_DIRECT_LINK_RESOURCES] = sorted({int(x) for x in selected})
+                return self.async_create_entry(title="", data=options)
+            errors = {"base": "invalid_resource"}
+        else:
+            errors = {}
+        from homeassistant.helpers import selector
+
+        defaults = [
+            str(resource_id)
+            for resource_id in enabled_resources(self.config_entry.options)
+            if str(resource_id) in resources
+        ]
+        return self.async_show_form(
+            step_id="direct_links",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_DIRECT_LINK_RESOURCES, default=defaults
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": key, "label": value}
+                                for key, value in resources.items()
+                            ],
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    ),
+                }
+            ),
             errors=errors,
         )
 

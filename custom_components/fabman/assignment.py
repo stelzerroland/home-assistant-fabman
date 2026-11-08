@@ -21,6 +21,7 @@ class MemberAssignment:
         self.coordinator = coordinator
         self.resource_id = resource_id
         self.account = coordinator.data[resource_id].get("account")
+        self.member_name = None
 
     async def request(self, method, path, *, params=None, data=None):
         """Use bounded requests without redirects or sensitive response errors."""
@@ -96,6 +97,10 @@ class MemberAssignment:
             raise ServiceValidationError(
                 "Fabman member does not belong to this account"
             )
+        self.member_name = " ".join(
+            value.strip() for value in (member.get("firstName"), member.get("lastName"))
+            if isinstance(value, str) and value.strip()
+        ) or None
         return member["id"]
 
     def valid_command(self, command, command_id):

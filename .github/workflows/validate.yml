@@ -3,6 +3,7 @@ name: Validate
 on:
   push:
     branches: [main, codex/activity-migration-foundation, codex/pos-nuki-beta]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -37,6 +38,18 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Validate Home Assistant metadata
         uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
 
   hacs:
     runs-on: ubuntu-latest

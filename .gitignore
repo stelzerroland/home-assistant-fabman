@@ -12,3 +12,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .pytest_tmp/
+
+node_modules/
+test-results/
+playwright-report/
+.pytest-qr-*/

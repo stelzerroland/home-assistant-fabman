@@ -11,9 +11,9 @@ Nuki status, read-only check-in attendance, bounded command confirmation, and
 optional per-Home-Assistant-user Fabman attribution. See the
 [v0.3.0 release notes](docs/releases/v0.3.0.md) for details and limitations.
 
-The **v0.4.0b3 beta** sends selected members directly with `switch-on` on both
+The **v0.4.0b4 beta** sends selected members directly with `switch-on` on both
 production and internal Fabman APIs, and shows clearer messages when Fabman denies
-an activation. See the [beta release notes](docs/releases/v0.4.0b3.md).
+an activation. It also adds opt-in QR direct links for machines and doors. See the [beta release notes](docs/releases/v0.4.0b4.md).
 
 Compare states with your existing installation before migrating automations.
 The integration remains under active development. Tested behavior and remaining
@@ -290,6 +290,60 @@ status sensor also exposes the latest activation in last_activation_* attributes
 This latest-activation snapshot is kept in memory and resets when the
 integration reloads or Home Assistant restarts.
 
+## QR direct links (v0.4.0b4 beta)
+
+Every resource's direct link is **disabled by default**, including existing
+installations and newly discovered resources. Administrators opt in individual
+machines and doors under **Settings → Devices & services → Fabman → Configure →
+Direct links**. Clearing a resource revokes printed links and open confirmations.
+Editing these options retains user mappings.
+
+Open **Fabman** in the HA sidebar as an administrator to copy browser/app links,
+download QR codes as SVG, or print a labelled QR code. QR generation runs locally
+with bundled software. No dashboard configuration or external QR service is needed.
+
+Printed QR codes use a Companion App navigation link:
+
+```text
+homeassistant://navigate/fabman/qr/<config-entry-id>/<resource-id>
+```
+
+Install and connect the Companion App to the intended HA server first. Its normal
+login/session is required; this feature does not force fresh authentication on every
+scan. With several HA servers the app uses its server picker unless you enter the
+configured server name in the QR overview. Do not assume the default server is the
+right one on every phone. Camera handoff and login continuation must be checked on
+your Android/iOS versions. Browser links use the current HA address; copy them from
+the externally reachable address if they must work outside the local network.
+
+Opening a link prepares a confirmation. The page shows the resource, observed state,
+explicit action and mapped Fabman member (or API-key member). Press **Turn machine
+on**, **Turn machine off** or **Open door** to execute. Machines require a known
+observed state. Doors request opening; a release interval is not a physical door
+contact. Nuki, POS and check-in resources are excluded from this QR version.
+
+Starting usage applies the authenticated HA user's existing mapping. Invalid
+mappings abort activation without fallback. Unmapped users use the API-key member.
+The backend checks HA entity read/control permissions. A QR URL contains no API
+key, HA access token or member selector and grants no permission by itself.
+
+Confirmations expire after 60 seconds and are bound to the user, integration,
+resource, explicit action and usage snapshot. State, rights, opt-in and mapping are
+checked again before dispatch. A changed machine/session requires a new
+confirmation. Within HA dispatch is serialized per resource; independent Fabman
+controls can still race the final read/send. This is not an atomic Fabman transaction.
+
+Duplicate submissions return the same operation. Session storage remembers it per
+user/resource so remounting the page asks for status instead of resending. Results
+remain in memory for up to ten minutes. Integration reloads interrupt operations;
+HA restarts lose result history. An unclear outcome requires checking the resource
+and Fabman log before manually requesting another confirmation.
+
+The page separates command acceptance, observed switching and member attribution.
+Assumed switch state is not confirmation. API failures, timeout and unconfirmed
+attribution never cause an automatic retry or reversal. Door success confirms the
+opening grant, not that the physical door is open.
+
 ## Optional webhooks
 
 Polling works without inbound access to HA. Webhooks require an HTTPS endpoint
@@ -366,3 +420,16 @@ changes. Report bugs or propose improvements through this repository's issues
 and pull requests. Avoid including API tokens or personal member data in reports.
 
 Made with ❤️ for Makerspaces!
+
+
+Frontend regression tests use Node.js 24 and Chromium:
+
+```sh
+npm ci --ignore-scripts
+npx playwright install chromium
+npm test
+```
+
+Browser tests use synthetic HA/WebSocket responses and never switch real hardware.
+Physical Companion App handoff and real hardware require an installation acceptance
+check.

@@ -11,3 +11,6 @@ CONF_USER_MEMBER_MAP = "user_member_map"
 DEFAULT_API_URL = "https://fabman.io/api/v1"
 DEFAULT_ENABLE_PERIODIC_SYNC = True
 DEFAULT_POLL_INTERVAL = 30  # Standardintervall in Sekunden
+
+CONF_DIRECT_LINK_RESOURCES = "direct_link_resources"
+DATA_DIRECT_LINKS = "fabman_direct_links"

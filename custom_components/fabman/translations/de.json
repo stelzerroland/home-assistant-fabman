@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mit Fabman verbinden",
+        "data": {
+          "api_token": "API-Token",
+          "api_url": "API-URL",
+          "enable_periodic_sync": "Regelmäßige Synchronisierung aktivieren",
+          "poll_interval": "Synchronisierungsintervall"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fabman-Einstellungen",
+        "description": "Aktuelle Zuordnungen:\n{mappings}",
+        "menu_options": {
+          "add_mapping": "Zuordnung hinzufügen oder aktualisieren",
+          "remove_mapping": "Zuordnung entfernen",
+          "direct_links": "Direktlinks"
+        }
+      },
+      "add_mapping": {
+        "title": "Home-Assistant-Benutzer zuordnen",
+        "description": "Fabman-Member-ID oder exakte E-Mail-Adresse eingeben. E-Mail-Adressen werden vor dem Speichern in eine Member-ID aufgelöst.",
+        "data": {
+          "ha_user": "Home-Assistant-Benutzer",
+          "fabman_member": "Fabman-Member-ID oder E-Mail-Adresse"
+        }
+      },
+      "remove_mapping": {
+        "title": "Benutzerzuordnung entfernen",
+        "data": {
+          "ha_user": "Zu entfernende Zuordnung"
+        }
+      },
+      "direct_links": {
+        "title": "Direktlinks pro Resource aktivieren",
+        "description": "Standardmäßig sind alle Direktlinks deaktiviert. Nur die ausgewählten Maschinen und Türen erhalten eine QR-Steuerseite. Abwählen sperrt auch gedruckte Links. Links kopieren und QR-Codes drucken ist im Fabman-Seitenleistenpanel möglich.",
+        "data": {
+          "direct_link_resources": "Ressourcen mit aktiviertem Direktlink"
+        }
+      }
+    },
+    "error": {
+      "invalid_user": "Einen aktiven Home-Assistant-Benutzer auswählen.",
+      "invalid_member_format": "Eine positive Member-ID oder eine E-Mail-Adresse eingeben.",
+      "invalid_member": "Der Fabman-Member wurde in diesem Account nicht gefunden.",
+      "integration_unavailable": "Die Fabman-Integration ist derzeit nicht verfügbar.",
+      "account_unavailable": "Kein Fabman-Account konnte ermittelt werden.",
+      "member_lookup_failed": "Fabman konnte den Member nicht prüfen. API-Verbindung prüfen und erneut versuchen.",
+      "invalid_resource": "Eine aktuelle Maschine oder Tür dieser Verbindung auswählen."
+    },
+    "abort": {
+      "no_users": "Keine aktiven Home-Assistant-Benutzer zum Zuordnen vorhanden.",
+      "no_mappings": "Keine Zuordnungen zum Entfernen vorhanden.",
+      "integration_unavailable": "Die Fabman-Integration ist derzeit nicht verfügbar.",
+      "no_direct_link_resources": "Keine aktuellen Maschinen oder Türen verfügbar."
+    }
+  }
+}

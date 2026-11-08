@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_USER_MEMBER_MAP, DOMAIN
 from .coordinator import FabmanDataUpdateCoordinator
+from .frontend import async_setup_panel, async_unload_panel
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass, DOMAIN, "Fabman Legacy Webhook", WEBHOOK_ID, handle_webhook
             )
             registered.append(WEBHOOK_ID)
+        await async_setup_panel(hass, entry)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         coordinators.pop(entry.entry_id, None)
@@ -59,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if registered_id != WEBHOOK_ID or not coordinators:
                 async_unregister(hass, registered_id)
         coordinator.async_cancel_pending_updates()
+        async_unload_panel(hass, entry.entry_id)
         raise
     _LOGGER.debug("Fabman webhook registered for entry %s", entry.entry_id)
     return True
@@ -102,6 +105,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Remove only this entry's callbacks after its platforms unload."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
+    async_unload_panel(hass, entry.entry_id)
     coordinators = hass.data.get(DOMAIN, {})
     coordinator = coordinators.pop(entry.entry_id, None)
     if coordinator is not None:

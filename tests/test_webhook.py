@@ -16,6 +16,13 @@ from custom_components.fabman import (
 from custom_components.fabman.const import DOMAIN
 
 
+@pytest.fixture(autouse=True)
+def isolate_panel_registration():
+    # These tests exercise the webhook lifecycle with a minimal HA fixture.
+    with patch("custom_components.fabman.async_setup_panel", new=AsyncMock()):
+        yield
+
+
 def entry(entry_id):
     return SimpleNamespace(entry_id=entry_id, data={"api_token": "test"}, options={})
 
